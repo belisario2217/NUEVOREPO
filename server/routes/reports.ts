@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
 import { createPdf, pdfTable, sendWorkbook } from "../services/files.js";
-import { ApiError, asId, asNumber, optionalText } from "../utils.js";
+import { ApiError, asId, asNumber, cleanText, optionalText } from "../utils.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const reportsRouter = Router();
@@ -38,6 +38,72 @@ function drawGradeSection(doc: PDFKit.PDFDocument, title: string, records: any[]
     grade.final_score == null ? "-" : Number(grade.final_score).toFixed(1),
     grade.final_score == null ? "Por cursar" : grade.status === "failed" ? "Reprobada" : "CURSADA"
   ]), [55, 185, 105, 80, 103]);
+}
+
+function defaultAcademicContext(groupId: number, cycleId: number | null) {
+  const group = get<any>(
+    `SELECT g.id, g.cycle_id, e.period_id
+     FROM groups g
+     LEFT JOIN enrollments e ON e.group_id = g.id AND e.is_active = 1
+     WHERE g.id = ? ORDER BY e.id DESC LIMIT 1`,
+    groupId
+  );
+  const effectiveCycleId = cycleId ?? group?.cycle_id ?? null;
+  const period = effectiveCycleId
+    ? get<{ id: number }>("SELECT id FROM academic_periods WHERE cycle_id = ? AND is_active = 1 ORDER BY sequence, id LIMIT 1", effectiveCycleId)
+    : null;
+  const fallbackPeriod = group?.period_id
+    ? get<{ id: number }>("SELECT id FROM academic_periods WHERE id = ?", group.period_id)
+    : null;
+  const scale = get<{ default_scale_id: number | null }>("SELECT default_scale_id FROM institution_settings WHERE id = 1");
+  const fallbackScale = scale?.default_scale_id
+    ? get<{ id: number }>("SELECT id FROM grading_scales WHERE id = ?", scale.default_scale_id)
+    : get<{ id: number }>("SELECT id FROM grading_scales WHERE is_active = 1 ORDER BY is_default DESC, id LIMIT 1");
+  const teacher = get<{ id: number }>("SELECT id FROM teachers WHERE is_active = 1 ORDER BY id LIMIT 1");
+  if (!teacher) throw new ApiError(400, "Agrega al menos un docente activo para crear materias en Calificaciones.");
+  if (!fallbackScale) throw new ApiError(400, "Configura una escala de calificacion activa.");
+  const effectivePeriod = period ?? fallbackPeriod;
+  if (!effectivePeriod) throw new ApiError(400, "Configura un periodo academico para el ciclo seleccionado.");
+  return { periodId: effectivePeriod.id, teacherId: teacher.id, scaleId: fallbackScale.id };
+}
+
+function ensureGradeAssignment(groupId: number, subjectId: number, cycleId: number | null) {
+  const context = defaultAcademicContext(groupId, cycleId);
+  const existing = get<{ id: number }>(
+    "SELECT id FROM subject_assignments WHERE subject_id = ? AND group_id = ? AND period_id = ?",
+    subjectId,
+    groupId,
+    context.periodId
+  );
+  if (existing) return existing.id;
+  const inserted = run(
+    `INSERT INTO subject_assignments(subject_id, group_id, teacher_id, period_id, grading_scale_id, evaluation_mode)
+     VALUES (?, ?, ?, ?, ?, 'partials')`,
+    subjectId,
+    groupId,
+    context.teacherId,
+    context.periodId,
+    context.scaleId
+  );
+  return Number(inserted.lastInsertRowid);
+}
+
+function deleteGradeAssignmentsForSubjects(groupId: number, subjectIds: number[]) {
+  if (!subjectIds.length) return 0;
+  const placeholders = subjectIds.map(() => "?").join(",");
+  const assignmentIds = all<{ id: number }>(
+    `SELECT id FROM subject_assignments WHERE group_id = ? AND subject_id IN (${placeholders})`,
+    groupId,
+    ...subjectIds
+  ).map((row) => row.id);
+  if (!assignmentIds.length) return 0;
+  const assignmentPlaceholders = assignmentIds.map(() => "?").join(",");
+  run(`DELETE FROM grade_history WHERE grade_id IN (SELECT id FROM grades WHERE assignment_id IN (${assignmentPlaceholders}))`, ...assignmentIds);
+  run(`DELETE FROM grade_components WHERE grade_id IN (SELECT id FROM grades WHERE assignment_id IN (${assignmentPlaceholders}))`, ...assignmentIds);
+  run(`DELETE FROM grades WHERE assignment_id IN (${assignmentPlaceholders})`, ...assignmentIds);
+  run(`DELETE FROM assignment_criteria WHERE assignment_id IN (${assignmentPlaceholders})`, ...assignmentIds);
+  run(`DELETE FROM subject_assignments WHERE id IN (${assignmentPlaceholders})`, ...assignmentIds);
+  return assignmentIds.length;
 }
 
 function drawReportCard(doc: PDFKit.PDFDocument, studentId: number, periodId?: number) {
@@ -86,6 +152,7 @@ function drawReportCard(doc: PDFKit.PDFDocument, studentId: number, periodId?: n
          WHERE e.student_id = ? AND e.is_active = 1
          ORDER BY e.id DESC LIMIT 1
        )
+       AND NOT EXISTS (SELECT 1 FROM explicit_subjects)
        AND NOT EXISTS (SELECT 1 FROM explicit_subjects es WHERE es.subject_key = LOWER(TRIM(s.name)))
        UNION
        SELECT LOWER(TRIM(s.name)) AS subject_key, s.id AS subject_id, NULL AS course_cycle, s.credits,
@@ -95,6 +162,7 @@ function drawReportCard(doc: PDFKit.PDFDocument, studentId: number, periodId?: n
        JOIN subject_assignments a ON a.id = gr.assignment_id
        JOIN subjects s ON s.id = a.subject_id
        WHERE e.student_id = ?
+       AND NOT EXISTS (SELECT 1 FROM explicit_subjects)
        AND NOT EXISTS (
          SELECT 1 FROM plan_subjects ps
          WHERE ps.plan_id = e.plan_id AND ps.subject_id = s.id
@@ -126,7 +194,8 @@ function drawReportCard(doc: PDFKit.PDFDocument, studentId: number, periodId?: n
      SELECT s.name AS subject_name,
       COALESCE(bs.course_cycle, MIN(gr.period_sequence), 999) AS course_cycle,
       CASE
-        WHEN COUNT(gr.final_score) = 0 THEN 'Pendiente'
+       WHEN COUNT(gr.final_score) = 0 THEN 'Pendiente'
+        WHEN MAX(bs.explicit_status) = 'completed' THEN 'ORDINARIO'
         WHEN SUM(CASE WHEN gr.period_name = 'ORDINARIO' THEN 1 ELSE 0 END) > 0 THEN 'ORDINARIO'
         ELSE COALESCE(MAX(gr.period_name), 'Pendiente')
       END AS period_name,
@@ -297,6 +366,7 @@ reportsRouter.post("/curricular-subjects/bulk", requirePermission("reports.gener
           effectivePlanId, semester
         );
       subjects.forEach((subject) => {
+        ensureGradeAssignment(groupId, subject.subject_id, cycleId ?? enrollment.cycle_id);
         const result = run(
           `INSERT INTO student_subjects(student_id, enrollment_id, plan_id, subject_id, school_cycle_id,
            semester_number, subject_type, credits, status)
@@ -319,6 +389,57 @@ reportsRouter.post("/curricular-subjects/bulk", requirePermission("reports.gener
   });
   logActivity(req, "assign-curricular-subjects", "student_subjects", groupId, { semester, planId, cycleId, subjectCount: subjectIds.length, rows: inserted });
   res.status(201).json({ count: inserted });
+});
+
+reportsRouter.post("/curricular-subjects/delete-many", requirePermission("reports.generate"), (req: AuthenticatedRequest, res) => {
+  const ids = Array.isArray(req.body.ids) ? req.body.ids.map((id: unknown) => asId(id, "Materia del alumno")) : [];
+  if (!ids.length) throw new ApiError(400, "Selecciona al menos una materia para borrar.");
+  const placeholders = ids.map(() => "?").join(",");
+  const existing = all<any>(
+    `SELECT ss.*, e.group_id FROM student_subjects ss
+     LEFT JOIN enrollments e ON e.id = ss.enrollment_id
+     WHERE ss.id IN (${placeholders})`,
+    ...ids
+  );
+  transaction(() => {
+    const byGroup = existing.reduce<Record<number, number[]>>((grouped, row) => {
+      if (row.group_id) (grouped[Number(row.group_id)] ??= []).push(Number(row.subject_id));
+      return grouped;
+    }, {});
+    Object.entries(byGroup).forEach(([groupId, subjectIds]) => {
+      deleteGradeAssignmentsForSubjects(Number(groupId), [...new Set(subjectIds)]);
+    });
+    run(`DELETE FROM student_subjects WHERE id IN (${placeholders})`, ...ids);
+  });
+  logActivity(req, "bulk-delete-curricular-subjects", "student_subjects", undefined, { ids, count: existing.length });
+  res.json({ count: existing.length });
+});
+
+reportsRouter.post("/curricular-subjects/clear-group", requirePermission("reports.generate"), (req: AuthenticatedRequest, res) => {
+  const groupId = asId(req.body.groupId, "Grupo");
+  const confirmation = cleanText(req.body.confirmation, 30).toUpperCase();
+  if (confirmation !== "LIMPIAR") throw new ApiError(400, "Confirma escribiendo LIMPIAR.");
+  const rows = all<any>(
+    `SELECT ss.id, ss.subject_id FROM student_subjects ss
+     JOIN enrollments e ON e.id = ss.enrollment_id
+     WHERE e.group_id = ?`,
+    groupId
+  );
+  const subjectIds = [...new Set(rows.map((row: any) => Number(row.subject_id)).filter(Boolean))];
+  transaction(() => {
+    deleteGradeAssignmentsForSubjects(groupId, subjectIds);
+    run(
+      `DELETE FROM student_subjects
+       WHERE id IN (
+         SELECT ss.id FROM student_subjects ss
+         JOIN enrollments e ON e.id = ss.enrollment_id
+         WHERE e.group_id = ?
+       )`,
+      groupId
+    );
+  });
+  logActivity(req, "clear-curricular-group", "student_subjects", groupId, { count: rows.length });
+  res.json({ count: rows.length });
 });
 
 reportsRouter.patch("/curricular-subjects/:id", requirePermission("reports.generate"), (req: AuthenticatedRequest, res) => {

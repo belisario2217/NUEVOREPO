@@ -52,6 +52,8 @@ export function ReportsPage() {
   const [cycleId, setCycleId] = useState("");
   const [semester, setSemester] = useState("1");
   const [busy, setBusy] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedRows, setSelectedRows] = useState<number[]>([]);
 
   async function loadCurricularRows() {
     const query = new URLSearchParams();
@@ -66,6 +68,7 @@ export function ReportsPage() {
       finalScore: row.final_score == null ? "" : String(row.final_score),
       notes: row.notes ?? ""
     }])));
+    setSelectedRows((current) => current.filter((id) => rows.some((row) => row.id === id)));
   }
 
   useEffect(() => {
@@ -162,6 +165,43 @@ export function ReportsPage() {
     }
   }
 
+  async function deleteSelectedCurricularSubjects() {
+    if (!selectedRows.length) return toast.error("Selecciona al menos una materia.");
+    if (!confirm(`Borrar ${selectedRows.length} materias seleccionadas?`)) return;
+    try {
+      const result = await api<{ count: number }>("/reports/curricular-subjects/delete-many", {
+        method: "POST",
+        body: { ids: selectedRows }
+      });
+      toast.success(`${result.count} materias borradas.`);
+      setSelectedRows([]);
+      await loadCurricularRows();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No fue posible borrar la seleccion.");
+    }
+  }
+
+  async function clearGroupCurricularSubjects() {
+    if (!groupId) return toast.error("Selecciona un grupo.");
+    if (!confirm("Esto borrara TODAS las materias colocadas a los alumnos del grupo seleccionado. Deseas continuar?")) return;
+    const confirmation = prompt("Para confirmar, escribe LIMPIAR");
+    if (confirmation !== "LIMPIAR") return toast.error("Operacion cancelada.");
+    setBusy(true);
+    try {
+      const result = await api<{ count: number }>("/reports/curricular-subjects/clear-group", {
+        method: "POST",
+        body: { groupId, confirmation }
+      });
+      toast.success(`Se limpiaron ${result.count} materias del grupo.`);
+      setSelectedRows([]);
+      await loadCurricularRows();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No fue posible limpiar el grupo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const semesterSubjects = planSubjects.filter((subject) => String(subject.recommended_period) === semester);
 
   return (
@@ -191,6 +231,11 @@ export function ReportsPage() {
           <Field label="Ciclo"><Select options={options.cycles ?? []} value={cycleId} onChange={(event) => setCycleId(event.target.value)} placeholder="Ciclo del grupo" /></Field>
           {can("reports.generate") && <Button icon={<GraduationCap size={17} />} busy={busy} onClick={assignSemesterSubjects}>Aplicar al grupo</Button>}
         </div>
+        {can("reports.generate") && <div className="bulk-toolbar">
+          <Button variant="secondary" onClick={() => { setSelectionMode(!selectionMode); setSelectedRows([]); }}>{selectionMode ? "Cancelar seleccion" : "Seleccionar"}</Button>
+          {selectionMode && <Button variant="danger" icon={<Trash2 size={17} />} disabled={!selectedRows.length} onClick={deleteSelectedCurricularSubjects}>Borrar seleccionadas</Button>}
+          <Button variant="danger" icon={<Trash2 size={17} />} busy={busy} onClick={clearGroupCurricularSubjects}>Limpiar grupo</Button>
+        </div>}
         <div className="semester-subject-strip">
           {semesterSubjects.length
             ? semesterSubjects.map((subject) => <span key={subject.subject_id}>{subject.code} - {subject.name}</span>)
@@ -198,12 +243,13 @@ export function ReportsPage() {
         </div>
         <div className="table-wrap curricular-table">
           <table>
-            <thead><tr><th>Alumno</th><th>Materia</th><th>Semestre</th><th>Estado</th><th>Promedio</th><th>Notas</th><th>Acciones</th></tr></thead>
+            <thead><tr>{selectionMode && <th aria-label="Seleccionar" />}<th>Alumno</th><th>Materia</th><th>Semestre</th><th>Estado</th><th>Promedio</th><th>Notas</th><th>Acciones</th></tr></thead>
             <tbody>
               {curricularRows.map((row) => {
                 const draft = drafts[row.id] ?? { semester: String(row.semester_number), status: row.status, finalScore: row.final_score == null ? "" : String(row.final_score), notes: row.notes ?? "" };
                 return (
                   <tr key={row.id}>
+                    {selectionMode && <td><input type="checkbox" checked={selectedRows.includes(row.id)} onChange={(event) => setSelectedRows(event.target.checked ? [...selectedRows, row.id] : selectedRows.filter((id) => id !== row.id))} /></td>}
                     <td><strong className="table-main">{row.student_name}</strong><span className="table-sub">{row.student_number} - {row.group_name ?? "Sin grupo"}</span></td>
                     <td><strong className="table-main">{row.subject_name}</strong><span className="table-sub">{row.subject_code} - {row.cycle_name ?? "Sin ciclo"}</span></td>
                     <td><input className="compact-input" type="number" min="1" value={draft.semester} onChange={(event) => setDrafts({ ...drafts, [row.id]: { ...draft, semester: event.target.value } })} /></td>
@@ -214,7 +260,7 @@ export function ReportsPage() {
                   </tr>
                 );
               })}
-              {!curricularRows.length && <tr><td colSpan={7}><div className="empty-row">No hay materias colocadas con esos filtros.</div></td></tr>}
+              {!curricularRows.length && <tr><td colSpan={selectionMode ? 8 : 7}><div className="empty-row">No hay materias colocadas con esos filtros.</div></td></tr>}
             </tbody>
           </table>
         </div>

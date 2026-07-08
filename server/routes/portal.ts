@@ -127,7 +127,7 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
      ORDER BY ss.semester_number, s.name`,
     enrollment.student_id
   );
-  const baseSubjects = enrollment.plan_id ? all<any>(
+  const baseSubjects = explicitSubjects.length ? [] : enrollment.plan_id ? all<any>(
     `SELECT ps.id AS plan_subject_id, s.id AS subject_id, s.code, s.name,
      ps.subject_type, ps.credits, ps.recommended_period,
      NULL AS explicit_status, NULL AS explicit_score, NULL AS course_cycle_name
@@ -150,7 +150,7 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
     explicit_score: null,
     course_cycle_name: null
   })).filter((subject, index, list) => list.findIndex((item) => item.subject_id === subject.subject_id) === index);
-  const gradeOnlySubjects = gradeRows
+  const gradeOnlySubjects = explicitSubjects.length ? [] : gradeRows
     .filter((grade) => !baseSubjects.some((subject) => subject.subject_id === grade.subject_id) && !explicitSubjects.some((subject) => subject.subject_id === grade.subject_id))
     .map((grade) => ({
       plan_subject_id: null,

@@ -236,6 +236,52 @@ gradesRouter.post("/assignments", requirePermission("catalogs.manage"), (req: Au
   res.status(201).json(get(`${assignmentSelect("a.id = ?")}`, id));
 });
 
+gradesRouter.patch("/assignments/:id", requirePermission("catalogs.manage"), (req: AuthenticatedRequest, res) => {
+  const id = asId(req.params.id, "AsignaciÃ³n");
+  const current = get(`${assignmentSelect("a.id = ?")}`, id);
+  if (!current) throw new ApiError(404, "No se encontrÃ³ la materia asignada.");
+  const body = req.body;
+  const evaluationMode = ["partials", "criteria", "final"].includes(body.evaluationMode) ? body.evaluationMode : "partials";
+  const criteria = evaluationMode === "criteria" && Array.isArray(body.criteria) ? body.criteria : [];
+  const totalWeight = criteria.reduce((sum: number, item: { weight: unknown }) => sum + Number(item.weight || 0), 0);
+  if (criteria.length && Math.abs(totalWeight - 100) > 0.01) throw new ApiError(400, "Las ponderaciones deben sumar 100%.");
+  transaction(() => {
+    run(
+      `UPDATE subject_assignments SET subject_id = ?, group_id = ?, teacher_id = ?, period_id = ?,
+       grading_scale_id = ?, evaluation_mode = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      asId(body.subjectId, "Materia"),
+      asId(body.groupId, "Grupo"),
+      asId(body.teacherId, "Docente"),
+      asId(body.periodId, "Periodo"),
+      asId(body.gradingScaleId, "Escala"),
+      evaluationMode,
+      id
+    );
+    run(
+      `UPDATE student_subjects SET subject_id = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE subject_id = ?
+       AND enrollment_id IN (
+         SELECT e.id FROM enrollments e WHERE e.group_id = ?
+       )`,
+      asId(body.subjectId, "Materia"),
+      (current as any).subject_id,
+      asId(body.groupId, "Grupo")
+    );
+    run("DELETE FROM assignment_criteria WHERE assignment_id = ?", id);
+    criteria.forEach((item: { criterionId: unknown; weight: unknown }) => {
+      run(
+        "INSERT INTO assignment_criteria(assignment_id, criterion_id, weight) VALUES (?, ?, ?)",
+        id,
+        asId(item.criterionId, "Criterio"),
+        asNumber(item.weight, "PonderaciÃ³n")
+      );
+    });
+  });
+  const updated = get(`${assignmentSelect("a.id = ?")}`, id);
+  logActivity(req, "update", "subject_assignments", id, body);
+  res.json(updated);
+});
+
 gradesRouter.get("/assignment/:id/roster", requirePermission("grades.view"), (req, res) => {
   const assignmentId = asId(req.params.id, "Asignación");
   const assignment = get(`${assignmentSelect("a.id = ?")}`, assignmentId);
@@ -320,6 +366,17 @@ gradesRouter.delete("/assignment/:id", requirePermission("catalogs.manage"), (re
     run("DELETE FROM grade_components WHERE grade_id IN (SELECT id FROM grades WHERE assignment_id = ?)", id);
     run("DELETE FROM grades WHERE assignment_id = ?", id);
     run("DELETE FROM assignment_criteria WHERE assignment_id = ?", id);
+    run(
+      `DELETE FROM student_subjects
+       WHERE subject_id = (SELECT subject_id FROM subject_assignments WHERE id = ?)
+       AND enrollment_id IN (
+         SELECT e.id FROM enrollments e
+         JOIN subject_assignments a ON a.group_id = e.group_id
+         WHERE a.id = ?
+       )`,
+      id,
+      id
+    );
     run("DELETE FROM subject_assignments WHERE id = ?", id);
   });
   logActivity(req, "delete", "subject_assignments", id, record);

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import {
   BookOpenCheck, Check, Download, FileDown, FileSpreadsheet, FileText, History,
-  Lock, LockOpen, Plus, Save, Search, Trash2, Upload
+  Lock, LockOpen, Pencil, Plus, Save, Search, Trash2, Upload
 } from "lucide-react";
 import { api, download } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -12,6 +12,7 @@ import { Button, EmptyState, Field, Select, StatusBadge } from "../components/Ui
 type Option = { id: number; name: string; default_weight?: number; program_id?: number };
 type Assignment = {
   id: number;
+  subject_id: number;
   subject_name: string;
   subject_code: string;
   group_id: number;
@@ -19,8 +20,11 @@ type Assignment = {
   program_name: string;
   shift_name: string;
   teacher_name: string;
+  teacher_id: number;
   period_name: string;
+  period_id: number;
   cycle_name: string;
+  grading_scale_id: number;
   min_score: number;
   max_score: number;
   passing_score: number;
@@ -56,6 +60,7 @@ export function GradesPage() {
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
   const [assignmentForm, setAssignmentForm] = useState({ subjectId: "", groupId: "", teacherId: "", periodId: "", gradingScaleId: "", evaluationMode: "partials" });
   const [weights, setWeights] = useState<Record<number, number>>({});
   const [importOpen, setImportOpen] = useState(false);
@@ -167,24 +172,58 @@ export function GradesPage() {
     }
   }
 
-  async function createAssignment(event: React.FormEvent) {
+  function defaultWeights() {
+    return Object.fromEntries((options.criteria ?? []).map((criterion: Option) => [criterion.id, criterion.default_weight || 0]));
+  }
+
+  function openCreateAssignment() {
+    setEditingAssignment(null);
+    setAssignmentForm({ subjectId: "", groupId: "", teacherId: "", periodId: "", gradingScaleId: "", evaluationMode: "partials" });
+    setWeights(defaultWeights());
+    setAssignmentOpen(true);
+  }
+
+  async function openEditAssignment() {
+    if (!selected) return;
+    const data = roster ?? await api<Roster>(`/grades/assignment/${selected.id}/roster`);
+    setEditingAssignment(selected);
+    setAssignmentForm({
+      subjectId: String(selected.subject_id),
+      groupId: String(selected.group_id),
+      teacherId: String(selected.teacher_id),
+      periodId: String(selected.period_id),
+      gradingScaleId: String(selected.grading_scale_id),
+      evaluationMode: selected.evaluation_mode
+    });
+    setWeights({
+      ...defaultWeights(),
+      ...Object.fromEntries(data.criteria.map((criterion) => [criterion.criterion_id, criterion.weight]))
+    });
+    setAssignmentOpen(true);
+  }
+
+  async function saveAssignment(event: React.FormEvent) {
     event.preventDefault();
     const criteria = assignmentForm.evaluationMode === "criteria"
       ? Object.entries(weights).filter(([, weight]) => Number(weight) > 0).map(([criterionId, weight]) => ({ criterionId: Number(criterionId), weight: Number(weight) }))
       : [];
     setBusy(true);
     try {
-      await api("/grades/assignments", { method: "POST", body: { ...assignmentForm, criteria } });
-      toast.success("Asignación académica creada.");
+      const saved = await api<Assignment>(editingAssignment ? `/grades/assignments/${editingAssignment.id}` : "/grades/assignments", {
+        method: editingAssignment ? "PATCH" : "POST",
+        body: { ...assignmentForm, criteria }
+      });
+      toast.success(editingAssignment ? "Materia actualizada." : "Asignacion academica creada.");
       setAssignmentOpen(false);
-      loadAssignments();
+      setEditingAssignment(null);
+      await loadAssignments();
+      if (editingAssignment) await loadRoster(saved);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No fue posible crear la asignación.");
+      toast.error(error instanceof Error ? error.message : "No fue posible guardar la materia.");
     } finally {
       setBusy(false);
     }
   }
-
   async function previewImport(file: File) {
     const body = new FormData();
     body.append("file", file);
@@ -231,7 +270,7 @@ export function GradesPage() {
       <aside className="assignment-pane">
         <div className="assignment-toolbar">
           <div><span>Asignaciones</span><strong>{assignments.length} materias</strong></div>
-          {can("catalogs.manage") && <button className="icon-button primary-icon" onClick={() => setAssignmentOpen(true)} title="Nueva asignación"><Plus size={18} /></button>}
+          {can("catalogs.manage") && <button className="icon-button primary-icon" onClick={openCreateAssignment} title="Nueva asignaciÃ³n"><Plus size={18} /></button>}
         </div>
         <div className="assignment-filters">
           <Select options={options.groups ?? []} value={filters.groupId} onChange={(event) => { const next = { ...filters, groupId: event.target.value }; setFilters(next); loadAssignments(next); }} placeholder="Todos los grupos" />
@@ -241,7 +280,7 @@ export function GradesPage() {
           {assignments.map((assignment) => (
             <button key={assignment.id} className={selected?.id === assignment.id ? "active" : ""} onClick={() => loadRoster(assignment)}>
               <div className="subject-mark">{assignment.subject_code.slice(0, 3)}</div>
-              <div><strong>{assignment.subject_name}</strong><span>{assignment.group_name} · {assignment.period_name}</span><small>{assignment.teacher_name}</small></div>
+              <div><strong>{assignment.subject_name}</strong><span>{assignment.group_name} Â· {assignment.period_name}</span><small>{assignment.teacher_name}</small></div>
               {assignment.grade_entry_locked ? <Lock size={15} /> : <LockOpen size={15} />}
             </button>
           ))}
@@ -253,9 +292,9 @@ export function GradesPage() {
           <>
             <header className="grade-header">
               <div>
-                <span>{selected.program_name} · {selected.cycle_name}</span>
+                <span>{selected.program_name} Â· {selected.cycle_name}</span>
                 <h2>{selected.subject_name}</h2>
-                <p>Grupo {selected.group_name} · {selected.shift_name} · {selected.teacher_name}</p>
+                <p>Grupo {selected.group_name} Â· {selected.shift_name} Â· {selected.teacher_name}</p>
               </div>
               <div className="grade-header-actions">
                 {can("grades.import") && <Button variant="secondary" icon={<Upload size={17} />} onClick={() => { setImportOpen(true); setPreview(null); }}>Importar</Button>}
@@ -267,13 +306,14 @@ export function GradesPage() {
                   </div>
                 )}
                 {can("grades.close") && <Button variant="secondary" icon={selected.grade_entry_locked ? <LockOpen size={17} /> : <Lock size={17} />} onClick={toggleLock}>{selected.grade_entry_locked ? "Reabrir" : "Cerrar"}</Button>}
+                {can("catalogs.manage") && <Button variant="secondary" icon={<Pencil size={17} />} onClick={openEditAssignment}>Editar materia</Button>}
                 {can("catalogs.manage") && <Button variant="danger" icon={<Trash2 size={17} />} busy={busy} onClick={deleteAssignment}>Eliminar materia</Button>}
                 {can("grades.manage") && <Button icon={<Save size={17} />} busy={busy} disabled={Boolean(selected.grade_entry_locked)} onClick={saveGrades}>Guardar</Button>}
               </div>
             </header>
             <div className="grade-meta">
               <div><span>Escala</span><strong>{selected.min_score} a {selected.max_score}</strong></div>
-              <div><span>Mínimo aprobatorio</span><strong>{selected.passing_score}</strong></div>
+              <div><span>MÃ­nimo aprobatorio</span><strong>{selected.passing_score}</strong></div>
               <div><span>Captura</span><StatusBadge active={!selected.grade_entry_locked} label={selected.grade_entry_locked ? "Cerrada" : "Abierta"} /></div>
               <div className="search-box compact"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar alumno" /></div>
             </div>
@@ -281,7 +321,7 @@ export function GradesPage() {
               <table className="grade-table">
                 <thead><tr><th>#</th><th>Alumno</th>{selected.evaluation_mode === "partials"
                   ? <><th>Parcial 1</th><th>Parcial 2</th><th>Parcial 3</th></>
-                  : roster.criteria.map((criterion) => <th key={criterion.id}>{criterion.name}<small>{criterion.weight}%</small></th>)}<th>{selected.evaluation_mode === "final" ? "Calificación" : "Promedio"}</th><th>Resultado</th><th>Observaciones</th><th aria-label="Historial" /></tr></thead>
+                  : roster.criteria.map((criterion) => <th key={criterion.id}>{criterion.name}<small>{criterion.weight}%</small></th>)}<th>{selected.evaluation_mode === "final" ? "CalificaciÃ³n" : "Promedio"}</th><th>Resultado</th><th>Observaciones</th><th aria-label="Historial" /></tr></thead>
                 <tbody>
                   {filteredStudents.map((student, index) => {
                     const draft = drafts[student.enrollment_id] ?? { score: "", comments: "", components: {}, partials: ["", "", ""] as [string, string, string] };
@@ -309,11 +349,11 @@ export function GradesPage() {
                           ? draft.partials.map((value, partialIndex) => <td key={partialIndex}><input className="component-input" aria-label={`Parcial ${partialIndex + 1} de ${student.student_name}`} type="number" min={selected.min_score} max={selected.max_score} step="0.1" disabled={Boolean(selected.grade_entry_locked)} value={value} onChange={(event) => { const partials = [...draft.partials] as [string, string, string]; partials[partialIndex] = event.target.value; setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, partials } }); }} /></td>)
                           : roster.criteria.map((criterion) => <td key={criterion.id}><input className="component-input" aria-label={`${criterion.name} de ${student.student_name}`} type="number" min={selected.min_score} max={selected.max_score} step="0.1" disabled={Boolean(selected.grade_entry_locked)} value={componentDraft[String(criterion.id)] ?? ""} onChange={(event) => setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, components: { ...componentDraft, [String(criterion.id)]: event.target.value } } })} /></td>)}
                         <td>{selected.evaluation_mode !== "final"
-                          ? <output className={`computed-grade ${complete ? passed ? "grade-pass" : "grade-fail" : ""}`}>{hasScore ? score.toFixed(1) : "—"}</output>
+                          ? <output className={`computed-grade ${complete ? passed ? "grade-pass" : "grade-fail" : ""}`}>{hasScore ? score.toFixed(1) : "â€”"}</output>
                           : <input className={`grade-input ${hasScore ? passed ? "grade-pass" : "grade-fail" : ""}`} type="number" min={selected.min_score} max={selected.max_score} step="0.1" disabled={Boolean(selected.grade_entry_locked)} value={draft.score} onChange={(event) => setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, score: event.target.value } })} />}
                         </td>
                         <td>{!complete ? <StatusBadge label={hasScore ? "En curso" : "Pendiente"} /> : <StatusBadge active={passed} label={passed ? "Aprobada" : "Reprobada"} />}</td>
-                        <td><input className="comments-input" disabled={Boolean(selected.grade_entry_locked)} value={draft.comments} onChange={(event) => setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, comments: event.target.value } })} placeholder="Agregar observación" /></td>
+                        <td><input className="comments-input" disabled={Boolean(selected.grade_entry_locked)} value={draft.comments} onChange={(event) => setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, comments: event.target.value } })} placeholder="Agregar observaciÃ³n" /></td>
                         <td><button className="icon-button" disabled={!student.grade_id} onClick={() => showHistory(student.grade_id)} title="Ver historial"><History size={17} /></button></td>
                       </tr>
                     );
@@ -323,19 +363,19 @@ export function GradesPage() {
             </div>
           </>
         ) : (
-          <EmptyState icon={<BookOpenCheck size={27} />} title="Selecciona una materia" text="Elige una asignación para consultar y capturar calificaciones." />
+          <EmptyState icon={<BookOpenCheck size={27} />} title="Selecciona una materia" text="Elige una asignaciÃ³n para consultar y capturar calificaciones." />
         )}
       </section>
 
-      <Modal open={assignmentOpen} onClose={() => setAssignmentOpen(false)} title="Nueva asignación académica" size="large">
-        <form onSubmit={createAssignment}>
+      <Modal open={assignmentOpen} onClose={() => { setAssignmentOpen(false); setEditingAssignment(null); }} title={editingAssignment ? "Editar materia asignada" : "Nueva asignaciÃ³n acadÃ©mica"} size="large">
+        <form onSubmit={saveAssignment}>
           <div className="form-grid three">
             <Field label="Materia" required><Select options={options.subjects ?? []} value={assignmentForm.subjectId} onChange={(event) => setAssignmentForm({ ...assignmentForm, subjectId: event.target.value })} required /></Field>
             <Field label="Grupo" required><Select options={options.groups ?? []} value={assignmentForm.groupId} onChange={(event) => setAssignmentForm({ ...assignmentForm, groupId: event.target.value })} required /></Field>
             <Field label="Docente" required><Select options={options.teachers ?? []} value={assignmentForm.teacherId} onChange={(event) => setAssignmentForm({ ...assignmentForm, teacherId: event.target.value })} required /></Field>
             <Field label="Periodo" required><Select options={options.periods ?? []} value={assignmentForm.periodId} onChange={(event) => setAssignmentForm({ ...assignmentForm, periodId: event.target.value })} required /></Field>
             <Field label="Escala" required><Select options={options.scales ?? []} value={assignmentForm.gradingScaleId} onChange={(event) => setAssignmentForm({ ...assignmentForm, gradingScaleId: event.target.value })} required /></Field>
-            <Field label="Tipo de evaluación" required><select value={assignmentForm.evaluationMode} onChange={(event) => setAssignmentForm({ ...assignmentForm, evaluationMode: event.target.value })}><option value="partials">Tres parciales</option><option value="criteria">Criterios ponderados</option><option value="final">Calificación final</option></select></Field>
+            <Field label="Tipo de evaluaciÃ³n" required><select value={assignmentForm.evaluationMode} onChange={(event) => setAssignmentForm({ ...assignmentForm, evaluationMode: event.target.value })}><option value="partials">Tres parciales</option><option value="criteria">Criterios ponderados</option><option value="final">CalificaciÃ³n final</option></select></Field>
           </div>
           {assignmentForm.evaluationMode === "criteria" && <>
             <div className="form-section-title"><Check size={18} /><div><strong>Ponderaciones</strong><span>El total activo debe sumar 100%</span></div><b className="weight-total">{Object.values(weights).reduce((sum, value) => sum + Number(value || 0), 0)}%</b></div>
@@ -347,7 +387,7 @@ export function GradesPage() {
               ))}
             </div>
           </>}
-          <div className="modal-actions"><Button type="button" variant="ghost" onClick={() => setAssignmentOpen(false)}>Cancelar</Button><Button type="submit" busy={busy}>Crear asignación</Button></div>
+          <div className="modal-actions"><Button type="button" variant="ghost" onClick={() => { setAssignmentOpen(false); setEditingAssignment(null); }}>Cancelar</Button><Button type="submit" busy={busy}>{editingAssignment ? "Guardar cambios" : "Crear asignaciÃ³n"}</Button></div>
         </form>
       </Modal>
 
@@ -355,7 +395,7 @@ export function GradesPage() {
         {!preview ? (
           <div className="import-step">
             <div className="drop-zone" onClick={() => fileRef.current?.click()}>
-              <FileSpreadsheet size={36} /><strong>Selecciona un archivo Excel o CSV</strong><span>La validación no modifica datos</span>
+              <FileSpreadsheet size={36} /><strong>Selecciona un archivo Excel o CSV</strong><span>La validaciÃ³n no modifica datos</span>
               <input ref={fileRef} hidden type="file" accept=".xlsx,.xls,.csv" onChange={(event) => event.target.files?.[0] && previewImport(event.target.files[0])} />
             </div>
             <button className="template-link" onClick={() => download("/grades/template/import.xlsx", "plantilla-calificaciones.xlsx")}><Download size={17} /> Descargar plantilla base</button>
@@ -363,26 +403,27 @@ export function GradesPage() {
         ) : (
           <div className="preview-step">
             <div className="import-summary">
-              <div><span>Filas</span><strong>{preview.summary.total}</strong></div><div className="summary-valid"><span>Válidas</span><strong>{preview.summary.valid}</strong></div>
+              <div><span>Filas</span><strong>{preview.summary.total}</strong></div><div className="summary-valid"><span>VÃ¡lidas</span><strong>{preview.summary.valid}</strong></div>
               <div className="summary-error"><span>Con error</span><strong>{preview.summary.errors}</strong></div><div><span>Existentes</span><strong>{preview.summary.existing}</strong></div>
             </div>
             {preview.errors.length > 0 && <div className="error-list">{preview.errors.slice(0, 6).map((error: any) => <p key={`${error.row}-${error.message}`}><b>Fila {error.row}</b>{error.message}</p>)}</div>}
             <div className="segmented"><button className={existingMode === "ignore" ? "active" : ""} onClick={() => setExistingMode("ignore")}>Ignorar existentes</button><button className={existingMode === "update" ? "active" : ""} onClick={() => setExistingMode("update")}>Actualizar existentes</button></div>
-            <div className="mini-preview-table"><table><thead><tr><th>Fila</th><th>Matrícula</th><th>Materia</th><th>Calificación</th></tr></thead><tbody>
+            <div className="mini-preview-table"><table><thead><tr><th>Fila</th><th>MatrÃ­cula</th><th>Materia</th><th>CalificaciÃ³n</th></tr></thead><tbody>
               {preview.rows.slice(0, 8).map((row: any) => <tr key={row.row}><td>{row.row}</td><td>{row.studentNumber}</td><td>{row.subject}</td><td><strong>{row.score}</strong></td></tr>)}
             </tbody></table></div>
-            <div className="modal-actions"><Button variant="ghost" onClick={() => setPreview(null)}>Elegir otro archivo</Button><Button busy={busy} onClick={applyImport} disabled={!preview.summary.valid}>Confirmar importación</Button></div>
+            <div className="modal-actions"><Button variant="ghost" onClick={() => setPreview(null)}>Elegir otro archivo</Button><Button busy={busy} onClick={applyImport} disabled={!preview.summary.valid}>Confirmar importaciÃ³n</Button></div>
           </div>
         )}
       </Modal>
 
-      <Modal open={historyOpen} onClose={() => setHistoryOpen(false)} title="Historial de calificación">
+      <Modal open={historyOpen} onClose={() => setHistoryOpen(false)} title="Historial de calificaciÃ³n">
         <div className="timeline">
           {history.map((item) => (
-            <div key={item.id}><i /><div><strong>{item.old_score ?? "Sin captura"} → {item.new_score ?? "Pendiente"}</strong><span>{item.reason || "Modificación"} · {item.changed_by_name}</span><small>{new Date(item.changed_at).toLocaleString("es-MX")}</small></div></div>
+            <div key={item.id}><i /><div><strong>{item.old_score ?? "Sin captura"} â†’ {item.new_score ?? "Pendiente"}</strong><span>{item.reason || "ModificaciÃ³n"} Â· {item.changed_by_name}</span><small>{new Date(item.changed_at).toLocaleString("es-MX")}</small></div></div>
           ))}
         </div>
       </Modal>
     </div>
   );
 }
+
