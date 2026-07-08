@@ -189,6 +189,42 @@ function saveGrade(
       );
     });
   }
+  const curricular = get<any>(
+    `SELECT e.student_id, e.plan_id, e.cycle_id, a.subject_id, s.credits AS subject_credits,
+     COALESCE(ps.subject_type, 'mandatory') AS subject_type,
+     COALESCE(ps.credits, NULLIF(s.credits, 0), 1) AS credits,
+     COALESCE(ps.recommended_period, ap.sequence, 1) AS semester_number
+     FROM enrollments e
+     JOIN subject_assignments a ON a.id = ?
+     JOIN subjects s ON s.id = a.subject_id
+     JOIN academic_periods ap ON ap.id = a.period_id
+     LEFT JOIN plan_subjects ps ON ps.plan_id = e.plan_id AND ps.subject_id = a.subject_id
+     WHERE e.id = ?`,
+    assignmentId,
+    enrollmentId
+  );
+  if (curricular) {
+    run(
+      `INSERT INTO student_subjects(student_id, enrollment_id, plan_id, subject_id, school_cycle_id,
+       semester_number, subject_type, credits, status, final_score, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(student_id, subject_id, school_cycle_id, semester_number)
+       DO UPDATE SET enrollment_id = excluded.enrollment_id, plan_id = excluded.plan_id,
+        subject_type = excluded.subject_type, credits = excluded.credits, status = excluded.status,
+        final_score = excluded.final_score, notes = excluded.notes, updated_at = CURRENT_TIMESTAMP`,
+      curricular.student_id,
+      enrollmentId,
+      curricular.plan_id,
+      curricular.subject_id,
+      curricular.cycle_id,
+      Math.max(1, Number(curricular.semester_number ?? 1)),
+      curricular.subject_type,
+      curricular.credits,
+      rounded == null ? "pending" : "completed",
+      rounded,
+      comments
+    );
+  }
   return gradeId;
 }
 

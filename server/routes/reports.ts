@@ -88,6 +88,81 @@ function ensureGradeAssignment(groupId: number, subjectId: number, cycleId: numb
   return Number(inserted.lastInsertRowid);
 }
 
+function gradeStatus(score: number | null, passingScore: number | null) {
+  if (score == null) return "pending";
+  return score >= Number(passingScore ?? 0) ? "passed" : "failed";
+}
+
+function syncCurricularGrade(userId: number, enrollmentId: number, assignmentId: number, score: number | null, comments: string | null) {
+  const assignment = get<{ passing_score: number; min_score: number; max_score: number }>(
+    `${assignmentSelectForSync("a.id = ?")}`,
+    assignmentId
+  );
+  if (!assignment) throw new ApiError(404, "No existe la asignacion academica.");
+  if (score != null && (score < assignment.min_score || score > assignment.max_score)) {
+    throw new ApiError(400, `El promedio debe estar entre ${assignment.min_score} y ${assignment.max_score}.`);
+  }
+  const status = gradeStatus(score, assignment.passing_score);
+  const current = get<{ id: number; final_score: number | null }>(
+    "SELECT id, final_score FROM grades WHERE enrollment_id = ? AND assignment_id = ?",
+    enrollmentId,
+    assignmentId
+  );
+  if (current) {
+    run(
+      `UPDATE grades SET final_score = ?, partial_1 = ?, partial_2 = ?, partial_3 = ?,
+       status = ?, comments = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      score,
+      score,
+      score,
+      score,
+      status,
+      comments,
+      userId,
+      current.id
+    );
+    run(
+      "INSERT INTO grade_history(grade_id, old_score, new_score, reason, changed_by) VALUES (?, ?, ?, ?, ?)",
+      current.id,
+      current.final_score,
+      score,
+      "Sincronizacion desde trayectoria curricular",
+      userId
+    );
+    return current.id;
+  }
+  const inserted = run(
+    `INSERT INTO grades(enrollment_id, assignment_id, final_score, partial_1, partial_2, partial_3,
+     status, comments, created_by, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    enrollmentId,
+    assignmentId,
+    score,
+    score,
+    score,
+    score,
+    status,
+    comments,
+    userId,
+    userId
+  );
+  run(
+    "INSERT INTO grade_history(grade_id, old_score, new_score, reason, changed_by) VALUES (?, NULL, ?, ?, ?)",
+    Number(inserted.lastInsertRowid),
+    score,
+    "Sincronizacion desde trayectoria curricular",
+    userId
+  );
+  return Number(inserted.lastInsertRowid);
+}
+
+function assignmentSelectForSync(where = "1 = 1") {
+  return `SELECT a.id, gs.min_score, gs.max_score, gs.passing_score
+    FROM subject_assignments a
+    JOIN grading_scales gs ON gs.id = a.grading_scale_id
+    WHERE ${where}`;
+}
+
 function deleteGradeAssignmentsForSubjects(groupId: number, subjectIds: number[]) {
   if (!subjectIds.length) return 0;
   const placeholders = subjectIds.map(() => "?").join(",");
@@ -152,7 +227,6 @@ function drawReportCard(doc: PDFKit.PDFDocument, studentId: number, periodId?: n
          WHERE e.student_id = ? AND e.is_active = 1
          ORDER BY e.id DESC LIMIT 1
        )
-       AND NOT EXISTS (SELECT 1 FROM explicit_subjects)
        AND NOT EXISTS (SELECT 1 FROM explicit_subjects es WHERE es.subject_key = LOWER(TRIM(s.name)))
        UNION
        SELECT LOWER(TRIM(s.name)) AS subject_key, s.id AS subject_id, NULL AS course_cycle, s.credits,
@@ -334,6 +408,9 @@ reportsRouter.post("/curricular-subjects/bulk", requirePermission("reports.gener
   const semester = Math.max(1, Math.trunc(asNumber(req.body.semester || 1, "Semestre")));
   const planId = req.body.planId ? asId(req.body.planId, "Plan") : null;
   const cycleId = req.body.cycleId ? asId(req.body.cycleId, "Ciclo escolar") : null;
+  const initialStatus = ["pending", "in_progress", "completed"].includes(String(req.body.status))
+    ? String(req.body.status)
+    : "in_progress";
   const subjectIds = Array.isArray(req.body.subjectIds)
     ? req.body.subjectIds.map((id: unknown) => asId(id, "Materia"))
     : [];
@@ -370,7 +447,7 @@ reportsRouter.post("/curricular-subjects/bulk", requirePermission("reports.gener
         const result = run(
           `INSERT INTO student_subjects(student_id, enrollment_id, plan_id, subject_id, school_cycle_id,
            semester_number, subject_type, credits, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'in_progress')
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(student_id, subject_id, school_cycle_id, semester_number)
            DO UPDATE SET enrollment_id = excluded.enrollment_id, plan_id = excluded.plan_id,
              subject_type = excluded.subject_type, credits = excluded.credits, updated_at = CURRENT_TIMESTAMP`,
@@ -381,7 +458,8 @@ reportsRouter.post("/curricular-subjects/bulk", requirePermission("reports.gener
           cycleId ?? enrollment.cycle_id,
           semester,
           subject.subject_type,
-          subject.credits
+          subject.credits,
+          initialStatus
         );
         inserted += Number(result.changes);
       });
@@ -440,6 +518,45 @@ reportsRouter.post("/curricular-subjects/clear-group", requirePermission("report
   });
   logActivity(req, "clear-curricular-group", "student_subjects", groupId, { count: rows.length });
   res.json({ count: rows.length });
+});
+
+reportsRouter.patch("/curricular-subjects/:id", requirePermission("reports.generate"), (req: AuthenticatedRequest, res) => {
+  const id = asId(req.params.id, "Registro curricular");
+  const current = get<any>("SELECT * FROM student_subjects WHERE id = ?", id);
+  if (!current) throw new ApiError(404, "No se encontro la materia del alumno.");
+  const enrollment = get<{ id: number; group_id: number; cycle_id: number }>(
+    "SELECT id, group_id, cycle_id FROM enrollments WHERE id = ?",
+    current.enrollment_id
+  );
+  if (!enrollment) throw new ApiError(404, "No se encontro la inscripcion vinculada.");
+  const subjectId = req.body.subjectId ? asId(req.body.subjectId, "Materia") : current.subject_id;
+  const semester = req.body.semester ? Math.max(1, Math.trunc(asNumber(req.body.semester, "Semestre"))) : current.semester_number;
+  const cycleId = req.body.cycleId === "" || req.body.cycleId == null ? current.school_cycle_id : asId(req.body.cycleId, "Ciclo escolar");
+  const status = ["pending", "in_progress", "completed"].includes(String(req.body.status)) ? String(req.body.status) : current.status;
+  const finalScore = req.body.finalScore === "" || req.body.finalScore == null ? null : asNumber(req.body.finalScore, "Promedio");
+  const credits = req.body.credits === "" || req.body.credits == null ? current.credits : Math.max(0, asNumber(req.body.credits, "Creditos"));
+  const subjectType = req.body.subjectType === "elective" ? "elective" : req.body.subjectType === "mandatory" ? "mandatory" : current.subject_type;
+  const notes = optionalText(req.body.notes, 500);
+  transaction(() => {
+    run(
+      `UPDATE student_subjects SET subject_id = ?, school_cycle_id = ?, semester_number = ?, subject_type = ?,
+       credits = ?, status = ?, final_score = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      subjectId,
+      cycleId,
+      semester,
+      subjectType,
+      credits,
+      status,
+      finalScore,
+      notes,
+      id
+    );
+    const assignmentId = ensureGradeAssignment(enrollment.group_id, subjectId, cycleId ?? enrollment.cycle_id);
+    syncCurricularGrade(req.user!.id, enrollment.id, assignmentId, finalScore, notes);
+  });
+  const updated = get("SELECT * FROM student_subjects WHERE id = ?", id);
+  logActivity(req, "update-curricular-subject", "student_subjects", id, updated);
+  res.json(updated);
 });
 
 reportsRouter.patch("/curricular-subjects/:id", requirePermission("reports.generate"), (req: AuthenticatedRequest, res) => {

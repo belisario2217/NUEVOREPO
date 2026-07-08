@@ -297,6 +297,7 @@ export function GradesPage() {
                 <p>Grupo {selected.group_name} {"\u00b7"} {selected.shift_name} {"\u00b7"} {selected.teacher_name}</p>
               </div>
               <div className="grade-header-actions">
+                {can("grades.import") && <Button variant="secondary" icon={<FileSpreadsheet size={17} />} onClick={() => download("/grades/template/import.xlsx", "plantilla-calificaciones.xlsx")}>Formato</Button>}
                 {can("grades.import") && <Button variant="secondary" icon={<Upload size={17} />} onClick={() => { setImportOpen(true); setPreview(null); }}>Importar</Button>}
                 {can("grades.export") && (
                   <div className="split-actions">

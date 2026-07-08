@@ -78,7 +78,8 @@ function summarizeSubject(subject: any, gradeRows: any[]): PortalSubject {
 portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedRequest, res) => {
   if (!req.user?.studentId) throw new ApiError(403, "Esta cuenta todavía no está vinculada con un alumno.");
   const enrollment = get<any>(
-    `SELECT e.id AS enrollment_id, e.plan_id, e.group_id, e.enrolled_at, sc.start_date AS billing_start_date,
+    `SELECT e.id AS enrollment_id, e.plan_id, e.group_id, e.enrolled_at,
+     COALESCE(e.tuition_start_date, sc.start_date) AS billing_start_date, e.tuition_due_day,
      p.duration_periods, pl.tuition_amount, st.id AS student_id, st.student_number,
      TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) AS student_name,
      st.email, p.name AS program_name, g.name AS group_name, sh.name AS shift_name,
@@ -127,7 +128,7 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
      ORDER BY ss.semester_number, s.name`,
     enrollment.student_id
   );
-  const baseSubjects = explicitSubjects.length ? [] : enrollment.plan_id ? all<any>(
+  const planSubjects = enrollment.plan_id ? all<any>(
     `SELECT ps.id AS plan_subject_id, s.id AS subject_id, s.code, s.name,
      ps.subject_type, ps.credits, ps.recommended_period,
      NULL AS explicit_status, NULL AS explicit_score, NULL AS course_cycle_name
@@ -138,7 +139,8 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
      ORDER BY ps.recommended_period, s.name`,
     enrollment.plan_id,
     enrollment.student_id
-  ) : gradeRows.filter((grade) => !explicitSubjects.some((subject) => subject.subject_id === grade.subject_id)).map((grade) => ({
+  ) : [];
+  const baseSubjects = planSubjects.length ? planSubjects : gradeRows.filter((grade) => !explicitSubjects.some((subject) => subject.subject_id === grade.subject_id)).map((grade) => ({
     plan_subject_id: null,
     subject_id: grade.subject_id,
     code: grade.code,
@@ -150,7 +152,7 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
     explicit_score: null,
     course_cycle_name: null
   })).filter((subject, index, list) => list.findIndex((item) => item.subject_id === subject.subject_id) === index);
-  const gradeOnlySubjects = explicitSubjects.length ? [] : gradeRows
+  const gradeOnlySubjects = gradeRows
     .filter((grade) => !baseSubjects.some((subject) => subject.subject_id === grade.subject_id) && !explicitSubjects.some((subject) => subject.subject_id === grade.subject_id))
     .map((grade) => ({
       plan_subject_id: null,
@@ -195,6 +197,7 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
       durationPeriods: enrollment.duration_periods,
       tuitionAmount: enrollment.tuition_amount,
       billingStartDate: enrollment.billing_start_date,
+      tuitionDueDay: enrollment.tuition_due_day,
       enrolledAt: enrollment.enrolled_at
     }),
     subjects

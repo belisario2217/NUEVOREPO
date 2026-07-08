@@ -183,8 +183,9 @@ describe("Aula Nova API", () => {
     const account = await request(app)
       .get(`/api/payments/student/${studentId}`)
       .set("Authorization", `Bearer ${token}`);
-    expect(account.body.billing.summary.expectedAmount).toBe(6000);
-    expect(account.body.billing.schedule[0].dueDate).toBe("2026-08-17");
+    expect(account.body.billing.summary.expectedAmount).toBe(36000);
+    expect(account.body.billing.summary.totalInstallments).toBe(36);
+    expect(account.body.billing.schedule[0].dueDate).toBe("2026-09-10");
 
     const created = await request(app)
       .post("/api/payments")
@@ -199,7 +200,7 @@ describe("Aula Nova API", () => {
       });
     expect(created.status).toBe(201);
     expect(created.body.billing.summary.paidAmount).toBe(1200);
-    expect(created.body.billing.summary.balance).toBe(4800);
+    expect(created.body.billing.summary.balance).toBe(0);
     const paymentId = created.body.billing.payments.find((payment: any) => payment.folio === "FOL-PAY-001").id;
 
     const updated = await request(app)

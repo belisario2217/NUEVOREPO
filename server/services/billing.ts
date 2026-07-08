@@ -7,6 +7,7 @@ export type BillingSource = {
   durationPeriods: number | null;
   tuitionAmount: number | null;
   billingStartDate?: string | null;
+  tuitionDueDay?: number | null;
   enrolledAt: string | null;
 };
 
@@ -28,7 +29,10 @@ export type PaymentRecord = {
 export type BillingSummary = {
   tuitionAmount: number;
   expectedPayments: number;
+  totalInstallments: number;
+  accruedInstallments: number;
   expectedAmount: number;
+  accruedAmount: number;
   paidAmount: number;
   balance: number;
   paidInstallments: number;
@@ -41,7 +45,7 @@ export type TuitionScheduleItem = {
   expectedAmount: number;
   paidAmount: number;
   pendingAmount: number;
-  status: "paid" | "partial" | "pending";
+  status: "paid" | "partial" | "pending" | "not_due";
 };
 
 function money(value: number) {
@@ -54,6 +58,36 @@ function addMonths(dateText: string | null, months: number) {
   if (Number.isNaN(date.getTime())) return null;
   date.setMonth(date.getMonth() + months);
   return date.toISOString().slice(0, 10);
+}
+
+function clampDay(year: number, monthIndex: number, day: number) {
+  return Math.min(day, new Date(year, monthIndex + 1, 0).getDate());
+}
+
+function dueDate(startDateText: string | null, dueDay: number, months: number) {
+  if (!startDateText) return null;
+  const start = new Date(`${startDateText.slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(start.getTime())) return null;
+  const date = new Date(start);
+  const offset = dueDay < start.getDate() ? 1 : 0;
+  date.setMonth(start.getMonth() + months + offset);
+  date.setDate(clampDay(date.getFullYear(), date.getMonth(), dueDay));
+  return date.toISOString().slice(0, 10);
+}
+
+function accruedInstallments(source: BillingSource, totalInstallments: number) {
+  const startDate = source.billingStartDate ?? source.enrolledAt;
+  const dueDay = Math.max(1, Math.min(31, Math.trunc(Number(source.tuitionDueDay ?? 10))));
+  let count = 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (let index = 0; index < totalInstallments; index++) {
+    const due = dueDate(startDate ?? null, dueDay, index);
+    if (!due) break;
+    const dueAt = new Date(`${due}T00:00:00`);
+    if (dueAt <= today) count++;
+  }
+  return Math.min(totalInstallments, count);
 }
 
 export function listStudentPayments(source: BillingSource): PaymentRecord[] {
@@ -71,40 +105,48 @@ export function listStudentPayments(source: BillingSource): PaymentRecord[] {
 
 export function summarizeBilling(source: BillingSource, payments: PaymentRecord[]) {
   const tuitionAmount = Math.max(0, Number(source.tuitionAmount ?? 0));
-  const expectedPayments = Math.max(0, Math.trunc(Number(source.durationPeriods ?? 0)));
-  const expectedAmount = money(tuitionAmount * expectedPayments);
+  const totalInstallments = Math.max(0, Math.trunc(Number(source.durationPeriods ?? 0)) * 6);
+  const accrued = accruedInstallments(source, totalInstallments);
+  const expectedPayments = totalInstallments;
+  const expectedAmount = money(tuitionAmount * totalInstallments);
+  const accruedAmount = money(tuitionAmount * accrued);
   const paidAmount = money(payments.reduce((sum, payment) => sum + Number(payment.amount), 0));
-  const balance = money(Math.max(0, expectedAmount - paidAmount));
+  const balance = money(Math.max(0, accruedAmount - paidAmount));
   const paidInstallments = tuitionAmount > 0
-    ? Math.min(expectedPayments, Math.floor(paidAmount / tuitionAmount))
+    ? Math.min(totalInstallments, Math.floor(paidAmount / tuitionAmount))
     : 0;
   return {
     tuitionAmount,
     expectedPayments,
+    totalInstallments,
+    accruedInstallments: accrued,
     expectedAmount,
+    accruedAmount,
     paidAmount,
     balance,
     paidInstallments,
-    pendingInstallments: Math.max(0, expectedPayments - paidInstallments)
+    pendingInstallments: Math.max(0, accrued - paidInstallments)
   } satisfies BillingSummary;
 }
 
 export function buildTuitionSchedule(source: BillingSource, summary: BillingSummary) {
-  if (!summary.expectedPayments || !summary.tuitionAmount) return [] satisfies TuitionScheduleItem[];
+  if (!summary.totalInstallments || !summary.tuitionAmount) return [] satisfies TuitionScheduleItem[];
   let remainingPaid = summary.paidAmount;
   const startDate = source.billingStartDate ?? source.enrolledAt;
-  return Array.from({ length: summary.expectedPayments }, (_, index) => {
+  const dueDay = Math.max(1, Math.min(31, Math.trunc(Number(source.tuitionDueDay ?? 10))));
+  return Array.from({ length: summary.totalInstallments }, (_, index) => {
     const period = index + 1;
     const paidAmount = money(Math.min(summary.tuitionAmount, Math.max(0, remainingPaid)));
     remainingPaid = money(Math.max(0, remainingPaid - summary.tuitionAmount));
     const pendingAmount = money(Math.max(0, summary.tuitionAmount - paidAmount));
+    const isAccrued = period <= summary.accruedInstallments;
     return {
       period,
-      dueDate: addMonths(startDate, index),
+      dueDate: dueDate(startDate, dueDay, index) ?? addMonths(startDate, index),
       expectedAmount: summary.tuitionAmount,
       paidAmount,
-      pendingAmount,
-      status: pendingAmount <= 0 ? "paid" : paidAmount > 0 ? "partial" : "pending"
+      pendingAmount: isAccrued ? pendingAmount : 0,
+      status: pendingAmount <= 0 ? "paid" : paidAmount > 0 ? "partial" : isAccrued ? "pending" : "not_due"
     };
   });
 }

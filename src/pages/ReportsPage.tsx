@@ -51,6 +51,7 @@ export function ReportsPage() {
   const [planId, setPlanId] = useState("");
   const [cycleId, setCycleId] = useState("");
   const [semester, setSemester] = useState("1");
+  const [initialStatus, setInitialStatus] = useState<CurricularSubject["status"]>("in_progress");
   const [busy, setBusy] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedRows, setSelectedRows] = useState<number[]>([]);
@@ -123,7 +124,7 @@ export function ReportsPage() {
     try {
       const result = await api<{ count: number }>("/reports/curricular-subjects/bulk", {
         method: "POST",
-        body: { groupId, planId, cycleId: cycleId || undefined, semester, subjectIds }
+        body: { groupId, planId, cycleId: cycleId || undefined, semester, subjectIds, status: initialStatus }
       });
       toast.success(`Materias aplicadas al grupo. Registros actualizados: ${result.count}.`);
       await loadCurricularRows();
@@ -229,7 +230,8 @@ export function ReportsPage() {
           <Field label="Plan"><Select options={plans.map((plan) => ({ id: plan.id, name: `${plan.code} - ${plan.name}` }))} value={planId} onChange={(event) => setPlanId(event.target.value)} placeholder="Seleccionar plan" /></Field>
           <Field label="Semestre"><input type="number" min="1" value={semester} onChange={(event) => setSemester(event.target.value || "1")} /></Field>
           <Field label="Ciclo"><Select options={options.cycles ?? []} value={cycleId} onChange={(event) => setCycleId(event.target.value)} placeholder="Ciclo del grupo" /></Field>
-          {can("reports.generate") && <Button icon={<GraduationCap size={17} />} busy={busy} onClick={assignSemesterSubjects}>Aplicar al grupo</Button>}
+          <Field label="Estado inicial"><select value={initialStatus} onChange={(event) => setInitialStatus(event.target.value as CurricularSubject["status"])}><option value="pending">Pendiente</option><option value="in_progress">En curso</option><option value="completed">CURSADA</option></select></Field>
+          {can("reports.generate") && <Button icon={<GraduationCap size={17} />} busy={busy} onClick={assignSemesterSubjects}>Aplicar materias y estado</Button>}
         </div>
         {can("reports.generate") && <div className="bulk-toolbar">
           <Button variant="secondary" onClick={() => { setSelectionMode(!selectionMode); setSelectedRows([]); }}>{selectionMode ? "Cancelar seleccion" : "Seleccionar"}</Button>
