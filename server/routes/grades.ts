@@ -237,9 +237,9 @@ gradesRouter.post("/assignments", requirePermission("catalogs.manage"), (req: Au
 });
 
 gradesRouter.patch("/assignments/:id", requirePermission("catalogs.manage"), (req: AuthenticatedRequest, res) => {
-  const id = asId(req.params.id, "AsignaciÃ³n");
+  const id = asId(req.params.id, "Asignaci\u00f3n");
   const current = get(`${assignmentSelect("a.id = ?")}`, id);
-  if (!current) throw new ApiError(404, "No se encontrÃ³ la materia asignada.");
+  if (!current) throw new ApiError(404, "No se encontr\u00f3 la materia asignada.");
   const body = req.body;
   const evaluationMode = ["partials", "criteria", "final"].includes(body.evaluationMode) ? body.evaluationMode : "partials";
   const criteria = evaluationMode === "criteria" && Array.isArray(body.criteria) ? body.criteria : [];
@@ -273,7 +273,7 @@ gradesRouter.patch("/assignments/:id", requirePermission("catalogs.manage"), (re
         "INSERT INTO assignment_criteria(assignment_id, criterion_id, weight) VALUES (?, ?, ?)",
         id,
         asId(item.criterionId, "Criterio"),
-        asNumber(item.weight, "PonderaciÃ³n")
+        asNumber(item.weight, "Ponderaci\u00f3n")
       );
     });
   });
@@ -358,9 +358,9 @@ gradesRouter.post("/assignment/:id/toggle-lock", requirePermission("grades.close
 });
 
 gradesRouter.delete("/assignment/:id", requirePermission("catalogs.manage"), (req: AuthenticatedRequest, res) => {
-  const id = asId(req.params.id, "AsignaciÃ³n");
+  const id = asId(req.params.id, "Asignaci\u00f3n");
   const record = get(`${assignmentSelect("a.id = ?")}`, id);
-  if (!record) throw new ApiError(404, "No se encontrÃ³ la materia asignada.");
+  if (!record) throw new ApiError(404, "No se encontr\u00f3 la materia asignada.");
   transaction(() => {
     run("DELETE FROM grade_history WHERE grade_id IN (SELECT id FROM grades WHERE assignment_id = ?)", id);
     run("DELETE FROM grade_components WHERE grade_id IN (SELECT id FROM grades WHERE assignment_id = ?)", id);
