@@ -67,26 +67,28 @@ function drawReportCard(doc: PDFKit.PDFDocument, studentId: number, periodId?: n
 
   const grades = all<any>(
     `WITH explicit_subjects AS (
-       SELECT ss.subject_id, ss.semester_number AS course_cycle, ss.credits, ss.status AS explicit_status,
+       SELECT LOWER(TRIM(s.name)) AS subject_key, ss.subject_id, ss.semester_number AS course_cycle, ss.credits, ss.status AS explicit_status,
         ss.final_score AS explicit_score, ss.notes AS explicit_notes
        FROM student_subjects ss
+       JOIN subjects s ON s.id = ss.subject_id
        WHERE ss.student_id = ?
      ),
-     base_subjects AS (
-       SELECT es.subject_id, es.course_cycle, es.credits, es.explicit_status, es.explicit_score, es.explicit_notes
+     base_raw AS (
+       SELECT es.subject_key, es.subject_id, es.course_cycle, es.credits, es.explicit_status, es.explicit_score, es.explicit_notes
        FROM explicit_subjects es
        UNION
-       SELECT ps.subject_id, ps.recommended_period AS course_cycle, ps.credits,
+       SELECT LOWER(TRIM(s.name)) AS subject_key, ps.subject_id, ps.recommended_period AS course_cycle, ps.credits,
         NULL AS explicit_status, NULL AS explicit_score, NULL AS explicit_notes
        FROM plan_subjects ps
+       JOIN subjects s ON s.id = ps.subject_id
        WHERE ps.plan_id = (
          SELECT e.plan_id FROM enrollments e
          WHERE e.student_id = ? AND e.is_active = 1
          ORDER BY e.id DESC LIMIT 1
        )
-       AND NOT EXISTS (SELECT 1 FROM explicit_subjects es WHERE es.subject_id = ps.subject_id)
+       AND NOT EXISTS (SELECT 1 FROM explicit_subjects es WHERE es.subject_key = LOWER(TRIM(s.name)))
        UNION
-       SELECT s.id AS subject_id, NULL AS course_cycle, s.credits,
+       SELECT LOWER(TRIM(s.name)) AS subject_key, s.id AS subject_id, NULL AS course_cycle, s.credits,
         NULL AS explicit_status, NULL AS explicit_score, NULL AS explicit_notes
        FROM grades gr
        JOIN enrollments e ON e.id = gr.enrollment_id
@@ -97,10 +99,20 @@ function drawReportCard(doc: PDFKit.PDFDocument, studentId: number, periodId?: n
          SELECT 1 FROM plan_subjects ps
          WHERE ps.plan_id = e.plan_id AND ps.subject_id = s.id
        )
-       AND NOT EXISTS (SELECT 1 FROM explicit_subjects es WHERE es.subject_id = s.id)
+       AND NOT EXISTS (SELECT 1 FROM explicit_subjects es WHERE es.subject_key = LOWER(TRIM(s.name)))
+     ),
+     base_subjects AS (
+       SELECT subject_key, MIN(subject_id) AS subject_id,
+        COALESCE(MIN(CASE WHEN explicit_status IS NOT NULL THEN course_cycle END), MIN(course_cycle)) AS course_cycle,
+        MAX(credits) AS credits,
+        MAX(explicit_status) AS explicit_status,
+        MAX(explicit_score) AS explicit_score,
+        MAX(explicit_notes) AS explicit_notes
+       FROM base_raw
+       GROUP BY subject_key
      ),
      grade_rows AS (
-       SELECT s.id AS subject_id, ap.sequence AS period_sequence,
+       SELECT LOWER(TRIM(s.name)) AS subject_key, s.id AS subject_id, ap.sequence AS period_sequence,
         CASE WHEN a.grade_entry_locked = 1 THEN 'ORDINARIO' ELSE ap.name END AS period_name,
         gr.final_score, gr.comments, gs.passing_score
        FROM grades gr
@@ -130,8 +142,8 @@ function drawReportCard(doc: PDFKit.PDFDocument, studentId: number, periodId?: n
       COALESCE(MAX(gr.passing_score), 0) AS passing_score
      FROM base_subjects bs
      JOIN subjects s ON s.id = bs.subject_id
-     LEFT JOIN grade_rows gr ON gr.subject_id = bs.subject_id
-     GROUP BY bs.subject_id, s.name, bs.course_cycle
+     LEFT JOIN grade_rows gr ON gr.subject_key = bs.subject_key
+     GROUP BY bs.subject_key, s.name, bs.course_cycle
      ORDER BY COALESCE(bs.course_cycle, MIN(gr.period_sequence), 999), s.name`,
     studentId,
     ...params

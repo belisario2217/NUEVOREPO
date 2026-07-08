@@ -311,6 +311,21 @@ gradesRouter.post("/assignment/:id/toggle-lock", requirePermission("grades.close
   res.json(record);
 });
 
+gradesRouter.delete("/assignment/:id", requirePermission("catalogs.manage"), (req: AuthenticatedRequest, res) => {
+  const id = asId(req.params.id, "AsignaciÃ³n");
+  const record = get(`${assignmentSelect("a.id = ?")}`, id);
+  if (!record) throw new ApiError(404, "No se encontrÃ³ la materia asignada.");
+  transaction(() => {
+    run("DELETE FROM grade_history WHERE grade_id IN (SELECT id FROM grades WHERE assignment_id = ?)", id);
+    run("DELETE FROM grade_components WHERE grade_id IN (SELECT id FROM grades WHERE assignment_id = ?)", id);
+    run("DELETE FROM grades WHERE assignment_id = ?", id);
+    run("DELETE FROM assignment_criteria WHERE assignment_id = ?", id);
+    run("DELETE FROM subject_assignments WHERE id = ?", id);
+  });
+  logActivity(req, "delete", "subject_assignments", id, record);
+  res.status(204).end();
+});
+
 gradesRouter.get("/history/:gradeId", requirePermission("grades.view"), (req, res) => {
   res.json(all(
     `SELECT h.*, u.full_name AS changed_by_name FROM grade_history h

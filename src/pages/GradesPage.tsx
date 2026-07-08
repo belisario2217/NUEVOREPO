@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   BookOpenCheck, Check, Download, FileDown, FileSpreadsheet, FileText, History,
-  Lock, LockOpen, Plus, Save, Search, Upload
+  Lock, LockOpen, Plus, Save, Search, Trash2, Upload
 } from "lucide-react";
 import { api, download } from "../lib/api";
 import { useAuth } from "../lib/auth";
@@ -149,6 +149,24 @@ export function GradesPage() {
     }
   }
 
+  async function deleteAssignment() {
+    if (!selected) return;
+    if (!confirm(`Eliminar la materia ${selected.subject_name} del grupo ${selected.group_name}? Tambien se borraran sus calificaciones capturadas.`)) return;
+    setBusy(true);
+    try {
+      await api(`/grades/assignment/${selected.id}`, { method: "DELETE" });
+      toast.success("Materia eliminada de calificaciones.");
+      setSelected(null);
+      setRoster(null);
+      setDrafts({});
+      await loadAssignments();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No fue posible eliminar la materia.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createAssignment(event: React.FormEvent) {
     event.preventDefault();
     const criteria = assignmentForm.evaluationMode === "criteria"
@@ -249,6 +267,7 @@ export function GradesPage() {
                   </div>
                 )}
                 {can("grades.close") && <Button variant="secondary" icon={selected.grade_entry_locked ? <LockOpen size={17} /> : <Lock size={17} />} onClick={toggleLock}>{selected.grade_entry_locked ? "Reabrir" : "Cerrar"}</Button>}
+                {can("catalogs.manage") && <Button variant="danger" icon={<Trash2 size={17} />} busy={busy} onClick={deleteAssignment}>Eliminar materia</Button>}
                 {can("grades.manage") && <Button icon={<Save size={17} />} busy={busy} disabled={Boolean(selected.grade_entry_locked)} onClick={saveGrades}>Guardar</Button>}
               </div>
             </header>
