@@ -27,6 +27,13 @@ type CurricularSubject = {
   cycle_name: string | null;
 };
 
+type CurricularDraft = {
+  semester: string;
+  status: CurricularSubject["status"];
+  finalScore: string;
+  notes: string;
+};
+
 const reports = [
   { type: "students", title: "Lista de alumnos", description: "Directorio por grupo con programa, turno y estatus.", icon: UsersRound },
   { type: "attendance", title: "Lista de asistencia", description: "Formato basico imprimible para control diario.", icon: ClipboardCheck },
@@ -44,7 +51,7 @@ export function ReportsPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [planSubjects, setPlanSubjects] = useState<PlanSubject[]>([]);
   const [curricularRows, setCurricularRows] = useState<CurricularSubject[]>([]);
-  const [drafts, setDrafts] = useState<Record<number, { semester: string; status: CurricularSubject["status"]; finalScore: string; notes: string }>>({});
+  const [drafts, setDrafts] = useState<Record<number, CurricularDraft>>({});
   const [groupId, setGroupId] = useState("");
   const [studentId, setStudentId] = useState("");
   const [periodId, setPeriodId] = useState("");
@@ -53,8 +60,46 @@ export function ReportsPage() {
   const [semester, setSemester] = useState("1");
   const [initialStatus, setInitialStatus] = useState<CurricularSubject["status"]>("in_progress");
   const [busy, setBusy] = useState(false);
+  const [savingAll, setSavingAll] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedRows, setSelectedRows] = useState<number[]>([]);
+
+  function draftFromRow(row: CurricularSubject): CurricularDraft {
+    return {
+      semester: String(row.semester_number),
+      status: row.status,
+      finalScore: row.final_score == null ? "" : String(row.final_score),
+      notes: row.notes ?? ""
+    };
+  }
+
+  function isDraftChanged(row: CurricularSubject, draft = drafts[row.id]) {
+    if (!draft) return false;
+    const original = draftFromRow(row);
+    return draft.semester !== original.semester
+      || draft.status !== original.status
+      || draft.finalScore !== original.finalScore
+      || draft.notes !== original.notes;
+  }
+
+  function updateSavedRow(rowId: number, draft: CurricularDraft) {
+    setCurricularRows((current) => current.map((row) => row.id === rowId ? {
+      ...row,
+      semester_number: Number(draft.semester),
+      status: draft.status,
+      final_score: draft.finalScore === "" ? null : Number(draft.finalScore),
+      notes: draft.notes || null
+    } : row));
+  }
+
+  function curricularPayload(draft: CurricularDraft) {
+    return {
+      semester: draft.semester,
+      status: draft.status,
+      finalScore: draft.finalScore,
+      notes: draft.notes
+    };
+  }
 
   async function loadCurricularRows() {
     const query = new URLSearchParams();
@@ -63,12 +108,7 @@ export function ReportsPage() {
     if (semester) query.set("semester", semester);
     const rows = await api<CurricularSubject[]>(`/reports/curricular-subjects?${query}`);
     setCurricularRows(rows);
-    setDrafts(Object.fromEntries(rows.map((row) => [row.id, {
-      semester: String(row.semester_number),
-      status: row.status,
-      finalScore: row.final_score == null ? "" : String(row.final_score),
-      notes: row.notes ?? ""
-    }])));
+    setDrafts(Object.fromEntries(rows.map((row) => [row.id, draftFromRow(row)])));
     setSelectedRows((current) => current.filter((id) => rows.some((row) => row.id === id)));
   }
 
@@ -141,17 +181,38 @@ export function ReportsPage() {
     try {
       await api(`/reports/curricular-subjects/${row.id}`, {
         method: "PATCH",
-        body: {
-          semester: draft.semester,
-          status: draft.status,
-          finalScore: draft.finalScore,
-          notes: draft.notes
-        }
+        body: curricularPayload(draft)
       });
+      updateSavedRow(row.id, draft);
       toast.success("Materia del alumno actualizada.");
-      await loadCurricularRows();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No fue posible guardar la materia.");
+    }
+  }
+
+  async function saveAllCurricularSubjects() {
+    const changedRows = curricularRows.filter((row) => isDraftChanged(row));
+    if (!changedRows.length) return toast.error("No hay cambios pendientes por guardar.");
+    setSavingAll(true);
+    try {
+      const results = await Promise.allSettled(changedRows.map(async (row) => {
+        const draft = drafts[row.id];
+        if (!draft) return;
+        await api(`/reports/curricular-subjects/${row.id}`, {
+          method: "PATCH",
+          body: curricularPayload(draft)
+        });
+        updateSavedRow(row.id, draft);
+      }));
+      const failed = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+      const saved = results.length - failed.length;
+      if (saved) toast.success(`${saved} ${saved === 1 ? "registro guardado" : "registros guardados"}.`);
+      if (failed.length) {
+        const firstError = failed[0].reason;
+        toast.error(firstError instanceof Error ? `${failed.length} registros no se guardaron: ${firstError.message}` : `${failed.length} registros no se guardaron.`);
+      }
+    } finally {
+      setSavingAll(false);
     }
   }
 
@@ -204,6 +265,7 @@ export function ReportsPage() {
   }
 
   const semesterSubjects = planSubjects.filter((subject) => String(subject.recommended_period) === semester);
+  const changedRowsCount = curricularRows.filter((row) => isDraftChanged(row)).length;
 
   return (
     <div className="page-stack">
@@ -234,6 +296,7 @@ export function ReportsPage() {
           {can("reports.generate") && <Button icon={<GraduationCap size={17} />} busy={busy} onClick={assignSemesterSubjects}>Aplicar materias y estado</Button>}
         </div>
         {can("reports.generate") && <div className="bulk-toolbar">
+          <Button icon={<Save size={17} />} busy={savingAll} disabled={!changedRowsCount} onClick={saveAllCurricularSubjects}>Guardar todo{changedRowsCount ? ` (${changedRowsCount})` : ""}</Button>
           <Button variant="secondary" onClick={() => { setSelectionMode(!selectionMode); setSelectedRows([]); }}>{selectionMode ? "Cancelar seleccion" : "Seleccionar"}</Button>
           {selectionMode && <Button variant="danger" icon={<Trash2 size={17} />} disabled={!selectedRows.length} onClick={deleteSelectedCurricularSubjects}>Borrar seleccionadas</Button>}
           <Button variant="danger" icon={<Trash2 size={17} />} busy={busy} onClick={clearGroupCurricularSubjects}>Limpiar grupo</Button>
@@ -248,7 +311,7 @@ export function ReportsPage() {
             <thead><tr>{selectionMode && <th aria-label="Seleccionar" />}<th>Alumno</th><th>Materia</th><th>Semestre</th><th>Estado</th><th>Promedio</th><th>Notas</th><th>Acciones</th></tr></thead>
             <tbody>
               {curricularRows.map((row) => {
-                const draft = drafts[row.id] ?? { semester: String(row.semester_number), status: row.status, finalScore: row.final_score == null ? "" : String(row.final_score), notes: row.notes ?? "" };
+                const draft = drafts[row.id] ?? draftFromRow(row);
                 return (
                   <tr key={row.id}>
                     {selectionMode && <td><input type="checkbox" checked={selectedRows.includes(row.id)} onChange={(event) => setSelectedRows(event.target.checked ? [...selectedRows, row.id] : selectedRows.filter((id) => id !== row.id))} /></td>}
@@ -258,7 +321,7 @@ export function ReportsPage() {
                     <td><select value={draft.status} onChange={(event) => setDrafts({ ...drafts, [row.id]: { ...draft, status: event.target.value as CurricularSubject["status"] } })}><option value="pending">Pendiente</option><option value="in_progress">Cursando</option><option value="completed">CURSADA</option></select></td>
                     <td><input className="compact-input" type="number" min="0" max="10" step="0.1" value={draft.finalScore} onChange={(event) => setDrafts({ ...drafts, [row.id]: { ...draft, finalScore: event.target.value } })} /></td>
                     <td><input value={draft.notes} onChange={(event) => setDrafts({ ...drafts, [row.id]: { ...draft, notes: event.target.value } })} /></td>
-                    <td><div className="inline-actions"><button title="Guardar" onClick={() => saveCurricularSubject(row)}><Save size={16} /></button><button title="Borrar" onClick={() => deleteCurricularSubject(row)}><Trash2 size={16} /></button></div></td>
+                    <td><div className="inline-actions"><button title="Guardar" disabled={!isDraftChanged(row)} onClick={() => saveCurricularSubject(row)}><Save size={16} /></button><button title="Borrar" onClick={() => deleteCurricularSubject(row)}><Trash2 size={16} /></button></div></td>
                   </tr>
                 );
               })}

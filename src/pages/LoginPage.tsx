@@ -21,7 +21,7 @@ export function LoginPage() {
       await login(email, password);
       navigate("/");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No fue posible iniciar sesión.");
+      toast.error(error instanceof Error ? error.message : "No fue posible iniciar sesion.");
     } finally {
       setBusy(false);
     }
@@ -32,9 +32,9 @@ export function LoginPage() {
       <section className="login-identity">
         <img src="/assets/campus-frontera.jpg" alt="" />
         <div>
-          <span className="identity-kicker">Instituto</span>
+          <span className="identity-kicker">Sistema de gestión académica</span>
           <h1>Universidad IFOP</h1>
-          <p>Gestión académica</p>
+          <p>Frontera, Centla.</p>
         </div>
         <div className="identity-lines" aria-hidden="true"><i /><i /><i /></div>
       </section>
@@ -45,24 +45,24 @@ export function LoginPage() {
             <h2>Bienvenido de vuelta</h2>
             <p>Ingresa con tu cuenta asignada.</p>
           </div>
-          <Field label="Correo electrónico" required>
+          <Field label="Correo electronico" required>
             <div className="input-with-icon">
               <Mail size={18} />
               <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
             </div>
           </Field>
-          <Field label="Contraseña" required>
+          <Field label="Contrasena" required>
             <div className="input-with-icon">
               <LockKeyhole size={18} />
               <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
-              <button type="button" className="password-toggle" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}>
+              <button type="button" className="password-toggle" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Ocultar contrasena" : "Mostrar contrasena"}>
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
           </Field>
-          <Button type="submit" busy={busy} icon={<ArrowRight size={18} />}>Iniciar sesión</Button>
+          <Button type="submit" busy={busy} icon={<ArrowRight size={18} />}>Iniciar sesion</Button>
         </form>
-        <p className="login-footer">© 2026 Universidad IFOP</p>
+        <p className="login-footer">(c) 2026 Universidad IFOP</p>
       </section>
     </main>
   );

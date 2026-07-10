@@ -72,16 +72,38 @@ function value(row: TabularRow, ...aliases: string[]) {
   return "";
 }
 
+function parseAmount(value: unknown) {
+  const text = cleanText(value, 40).replace(/\$/g, "").replace(/,/g, "").trim();
+  return Number(text);
+}
+
 function money(value: unknown) {
   return Number(value ?? 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
 }
 
 function validDate(value: unknown, field: string) {
-  const text = cleanText(value, 20);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(new Date(`${text}T00:00:00`).getTime())) {
-    throw new ApiError(400, `${field} no es una fecha valida.`);
+  const text = cleanText(value, 40);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text) && !Number.isNaN(new Date(`${text}T00:00:00`).getTime())) {
+    return text;
   }
-  return text;
+  const slash = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2}|\d{4})$/);
+  if (slash) {
+    const first = Number(slash[1]);
+    const second = Number(slash[2]);
+    const year = Number(slash[3].length === 2 ? `20${slash[3]}` : slash[3]);
+    const day = first > 12 ? first : second;
+    const month = first > 12 ? second : first;
+    const normalized = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (!Number.isNaN(new Date(`${normalized}T00:00:00`).getTime())) return normalized;
+  }
+  if (/^\d+(\.\d+)?$/.test(text)) {
+    const serial = Number(text);
+    if (serial > 30_000 && serial < 80_000) {
+      const date = new Date(Date.UTC(1899, 11, 30 + Math.trunc(serial)));
+      return date.toISOString().slice(0, 10);
+    }
+  }
+  throw new ApiError(400, `${field} no es una fecha valida.`);
 }
 
 function validMonth(value: unknown) {
@@ -280,12 +302,20 @@ paymentsRouter.get("/students", requirePermission("payments.view"), (req, res) =
 paymentsRouter.get("/template/import.xlsx", requirePermission("payments.manage"), (_req, res) => {
   sendWorkbook(res, "plantilla-pagos.xlsx", "Pagos", [{
     Matricula: "0825AMRLEESC",
-    Folio: "FOL-0001",
-    "Fecha de pago": "2026-07-08",
+    Folio: "PAGO-0001",
+    Fecha: "2026-07-08",
     Monto: 1500,
     Metodo: "Transferencia",
     Concepto: "Colegiatura",
-    Notas: ""
+    Observaciones: ""
+  }, {
+    Matricula: "0825AMRLEESC",
+    Folio: "",
+    Fecha: "2026-08-08",
+    Monto: 1500,
+    Metodo: "Efectivo",
+    Concepto: "Colegiatura",
+    Observaciones: "Folio vacio: el sistema genera uno automaticamente"
   }]);
 });
 
@@ -299,14 +329,14 @@ paymentsRouter.post("/import/preview", requirePermission("payments.manage"), upl
   rows.forEach((source, index) => {
     const rowNumber = index + 2;
     const studentNumber = value(source, "Matricula", "Matrícula");
-    const folio = value(source, "Folio").toUpperCase();
+    const folioInput = value(source, "Folio", "Recibo", "Referencia").toUpperCase();
     const paidAtInput = value(source, "Fecha de pago", "Fecha");
     const amountInput = value(source, "Monto", "Importe");
-    if (!studentNumber || !folio || !paidAtInput || amountInput === "") {
-      errors.push({ row: rowNumber, message: "Faltan matricula, folio, fecha o monto." });
+    if (!studentNumber || !paidAtInput || amountInput === "") {
+      errors.push({ row: rowNumber, message: "Faltan matricula, fecha o monto." });
       return;
     }
-    const amount = Number(amountInput);
+    const amount = parseAmount(amountInput);
     if (!Number.isFinite(amount) || amount <= 0) {
       errors.push({ row: rowNumber, message: "El monto debe ser numerico y mayor a cero." });
       return;
@@ -344,6 +374,7 @@ paymentsRouter.post("/import/preview", requirePermission("payments.manage"), upl
       errors.push({ row: rowNumber, message: "No se encontro alumno activo con esa matricula." });
       return;
     }
+    const folio = folioInput || `IMP-${studentNumber}-${paidAt.replaceAll("-", "")}-${rowNumber}`;
     const existing = get<{ id: number }>("SELECT id FROM student_payments WHERE folio = ?", folio);
     valid.push({
       row: rowNumber,

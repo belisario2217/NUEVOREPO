@@ -335,12 +335,13 @@ function drawReportCard(doc: PDFKit.PDFDocument, studentId: number, periodId?: n
   if (comments) {
     doc.moveDown().fillColor("#486581").font("Helvetica").fontSize(9).text(`Observaciones: ${comments}`);
   }
-  if (doc.y > 620) doc.addPage();
-  const signatureY = 620;
-  doc.moveTo(80, signatureY).lineTo(260, signatureY).strokeColor("#9fb3c8").stroke();
-  doc.moveTo(350, signatureY).lineTo(530, signatureY).stroke();
-  doc.fillColor("#627d98").fontSize(8).text(settings.director_name || "Responsable academico", 80, signatureY + 6, { width: 180, align: "center" });
-  doc.text("Firma del padre, madre o tutor", 350, signatureY + 6, { width: 180, align: "center" });
+  const signatureY = Math.max(doc.y + 28, 620);
+  if (signatureY > 690) doc.addPage();
+  const finalSignatureY = signatureY > 690 ? 96 : signatureY;
+  doc.moveTo(80, finalSignatureY).lineTo(260, finalSignatureY).strokeColor("#9fb3c8").stroke();
+  doc.moveTo(350, finalSignatureY).lineTo(530, finalSignatureY).stroke();
+  doc.fillColor("#627d98").fontSize(8).text(settings.director_name || "Responsable academico", 80, finalSignatureY + 6, { width: 180, align: "center" });
+  doc.text("Firma del padre, madre o tutor", 350, finalSignatureY + 6, { width: 180, align: "center" });
   doc.fontSize(7).text(settings.footer_text || "", 42, 735, { width: 528, align: "center" });
   doc.text(`Fecha de emision: ${new Date().toLocaleDateString("es-MX")}`, 42, 747, { width: 528, align: "center" });
 }

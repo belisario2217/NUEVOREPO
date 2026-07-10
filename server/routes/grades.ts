@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import multer from "multer";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
@@ -52,6 +52,11 @@ function value(row: TabularRow, ...aliases: string[]) {
   return "";
 }
 
+function parseScore(value: unknown) {
+  const text = cleanText(value, 40).replace(",", ".").replace(/[^0-9.-]/g, "").trim();
+  return Number(text);
+}
+
 function assignmentSelect(where = "1 = 1") {
   return `SELECT a.id, a.subject_id, s.code AS subject_code, s.name AS subject_name,
     a.group_id, g.name AS group_name, p.id AS program_id, p.name AS program_name,
@@ -85,10 +90,10 @@ function saveGrade(
     `${assignmentSelect("a.id = ?")}`,
     assignmentId
   );
-  if (!assignment) throw new ApiError(404, "No existe la asignación académica.");
-  if (assignment.grade_entry_locked) throw new ApiError(409, "La captura de esta materia está cerrada.");
+  if (!assignment) throw new ApiError(404, "No existe la asignaciÃ³n acadÃ©mica.");
+  if (assignment.grade_entry_locked) throw new ApiError(409, "La captura de esta materia estÃ¡ cerrada.");
   if (score !== null && (score < assignment.min_score || score > assignment.max_score)) {
-    throw new ApiError(400, `La calificación debe estar entre ${assignment.min_score} y ${assignment.max_score}.`);
+    throw new ApiError(400, `La calificaciÃ³n debe estar entre ${assignment.min_score} y ${assignment.max_score}.`);
   }
   const belongs = get(
     `SELECT e.id FROM enrollments e JOIN subject_assignments a ON a.group_id = e.group_id
@@ -114,7 +119,7 @@ function saveGrade(
     partialValues = ["partial1", "partial2", "partial3"].map((key) => {
       const input = partials[key];
       if (input === "" || input === null || input === undefined) return null;
-      const value = asNumber(input, "Calificación parcial");
+      const value = asNumber(input, "CalificaciÃ³n parcial");
       if (value < assignment.min_score || value > assignment.max_score) {
         throw new ApiError(400, `Cada parcial debe estar entre ${assignment.min_score} y ${assignment.max_score}.`);
       }
@@ -128,7 +133,7 @@ function saveGrade(
     for (const criterion of assignmentCriteria) {
       const input = components[String(criterion.id)];
       if (input === "" || input === null || input === undefined) continue;
-      const componentScore = asNumber(input, "Calificación por criterio");
+      const componentScore = asNumber(input, "CalificaciÃ³n por criterio");
       if (componentScore < assignment.min_score || componentScore > assignment.max_score) {
         throw new ApiError(400, `Cada criterio debe estar entre ${assignment.min_score} y ${assignment.max_score}.`);
       }
@@ -263,7 +268,7 @@ gradesRouter.post("/assignments", requirePermission("catalogs.manage"), (req: Au
         "INSERT INTO assignment_criteria(assignment_id, criterion_id, weight) VALUES (?, ?, ?)",
         assignmentId,
         asId(item.criterionId, "Criterio"),
-        asNumber(item.weight, "Ponderación")
+        asNumber(item.weight, "PonderaciÃ³n")
       );
     });
     return assignmentId;
@@ -319,9 +324,9 @@ gradesRouter.patch("/assignments/:id", requirePermission("catalogs.manage"), (re
 });
 
 gradesRouter.get("/assignment/:id/roster", requirePermission("grades.view"), (req, res) => {
-  const assignmentId = asId(req.params.id, "Asignación");
+  const assignmentId = asId(req.params.id, "AsignaciÃ³n");
   const assignment = get(`${assignmentSelect("a.id = ?")}`, assignmentId);
-  if (!assignment) throw new ApiError(404, "No se encontró la materia asignada.");
+  if (!assignment) throw new ApiError(404, "No se encontrÃ³ la materia asignada.");
   const criteria = all(
     `SELECT ac.id, ac.criterion_id, ec.name, ac.weight
      FROM assignment_criteria ac JOIN evaluation_criteria ec ON ec.id = ac.criterion_id
@@ -358,17 +363,17 @@ gradesRouter.get("/assignment/:id/roster", requirePermission("grades.view"), (re
 });
 
 gradesRouter.put("/assignment/:id", requirePermission("grades.manage"), (req: AuthenticatedRequest, res) => {
-  const assignmentId = asId(req.params.id, "Asignación");
+  const assignmentId = asId(req.params.id, "AsignaciÃ³n");
   const rows = Array.isArray(req.body.grades) ? req.body.grades : [];
   if (!rows.length) throw new ApiError(400, "No hay calificaciones para guardar.");
   transaction(() => {
     rows.forEach((item: any) => {
       const rawScore = item.score;
-      const score = rawScore === "" || rawScore == null ? null : asNumber(rawScore, "Calificación");
+      const score = rawScore === "" || rawScore == null ? null : asNumber(rawScore, "CalificaciÃ³n");
       saveGrade(
         req.user!.id,
         assignmentId,
-        asId(item.enrollmentId, "Inscripción"),
+        asId(item.enrollmentId, "InscripciÃ³n"),
         score,
         optionalText(item.comments, 1000),
         optionalText(item.reason, 300) ?? "Captura manual",
@@ -382,7 +387,7 @@ gradesRouter.put("/assignment/:id", requirePermission("grades.manage"), (req: Au
 });
 
 gradesRouter.post("/assignment/:id/toggle-lock", requirePermission("grades.close"), (req: AuthenticatedRequest, res) => {
-  const id = asId(req.params.id, "Asignación");
+  const id = asId(req.params.id, "AsignaciÃ³n");
   run(
     `UPDATE subject_assignments SET grade_entry_locked = CASE grade_entry_locked WHEN 1 THEN 0 ELSE 1 END,
      updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -423,81 +428,94 @@ gradesRouter.get("/history/:gradeId", requirePermission("grades.view"), (req, re
   res.json(all(
     `SELECT h.*, u.full_name AS changed_by_name FROM grade_history h
      JOIN users u ON u.id = h.changed_by WHERE h.grade_id = ? ORDER BY h.changed_at DESC`,
-    asId(req.params.gradeId, "Calificación")
+    asId(req.params.gradeId, "CalificaciÃ³n")
   ));
 });
 
 gradesRouter.get("/template/import.xlsx", requirePermission("grades.import"), (_req, res) => {
   sendWorkbook(res, "plantilla-calificaciones.xlsx", "Calificaciones", [{
-    "Matrícula": "AN26001",
-    "Nombre del alumno": "Sofía Hernández Luna",
-    "Programa de estudios": "Bachillerato General",
-    "Turno": "Matutino",
-    "Grupo": "1A",
-    "Materia": "MAT-101",
-    "Periodo": "Primer parcial",
-    "Calificación": 9.5,
-    "Observaciones": ""
+    Matricula: "0825AMRLEESC",
+    Alumno: "Nombre de referencia opcional",
+    Grupo: "GENERACION 2025-2028 A-ESCOLARIZADO",
+    Materia: "LE1",
+    Periodo: "Primer parcial",
+    Calificacion: 9.5,
+    Observaciones: ""
+  }, {
+    Matricula: "0825AMRLEESC",
+    Alumno: "",
+    Grupo: "",
+    Materia: "Anatomia Humana I",
+    Periodo: "",
+    Calificacion: "8.7",
+    Observaciones: "Grupo y periodo son opcionales si no hay ambiguedad"
   }]);
 });
-
 gradesRouter.post("/import/preview", requirePermission("grades.import"), upload.single("file"), (req: AuthenticatedRequest, res) => {
   if (!req.file) throw new ApiError(400, "Selecciona un archivo.");
   const rows = parseWorkbook(req.file.buffer);
   if (!rows.length) throw new ApiError(400, "El archivo no contiene filas.");
-  if (rows.length > 3000) throw new ApiError(400, "El archivo excede el límite de 3,000 filas.");
+  if (rows.length > 3000) throw new ApiError(400, "El archivo excede el lÃ­mite de 3,000 filas.");
   const valid: GradeImportRow[] = [];
   const errors: Array<{ row: number; message: string }> = [];
 
   rows.forEach((source, index) => {
     const rowNumber = index + 2;
-    const studentNumber = value(source, "Matrícula", "Matricula");
-    const programName = value(source, "Programa de estudios", "Programa");
-    const shiftName = value(source, "Turno");
-    const groupName = value(source, "Grupo");
-    const subjectInput = value(source, "Materia");
-    const periodName = value(source, "Periodo");
-    const scoreInput = value(source, "Calificación", "Calificacion");
-    if (!studentNumber || !programName || !shiftName || !groupName || !subjectInput || !periodName || scoreInput === "") {
-      errors.push({ row: rowNumber, message: "Faltan uno o más campos obligatorios." });
+    const studentNumber = value(source, "Matricula", "Matricula alumno", "Alumno", "No control", "Numero de control");
+    const groupName = value(source, "Grupo", "Grupo academico");
+    const subjectInput = value(source, "Materia", "Asignatura", "Clave materia", "Codigo materia");
+    const periodName = value(source, "Periodo", "Parcial", "Evaluacion");
+    const scoreInput = value(source, "Calificacion", "Calificacion final", "Promedio", "Nota");
+    if (!studentNumber || !subjectInput || scoreInput === "") {
+      errors.push({ row: rowNumber, message: "Faltan matricula, materia o calificacion." });
       return;
     }
-    const score = Number(scoreInput);
+    const score = parseScore(scoreInput);
     if (!Number.isFinite(score)) {
-      errors.push({ row: rowNumber, message: "La calificación no es numérica." });
+      errors.push({ row: rowNumber, message: "La calificacion no es numerica." });
       return;
     }
-    const match = get<{
+    const candidates = all<{
       enrollment_id: number;
       student_name: string;
       assignment_id: number;
       subject_name: string;
+      group_name: string;
+      period_name: string;
       min_score: number;
       max_score: number;
       grade_entry_locked: number;
     }>(
       `SELECT e.id AS enrollment_id,
        TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) AS student_name,
-       a.id AS assignment_id, s.name AS subject_name, gs.min_score, gs.max_score, a.grade_entry_locked
+       a.id AS assignment_id, s.name AS subject_name, g.name AS group_name, ap.name AS period_name,
+       gs.min_score, gs.max_score, a.grade_entry_locked
        FROM students st JOIN enrollments e ON e.student_id = st.id AND e.is_active = 1
-       JOIN programs p ON p.id = e.program_id JOIN shifts sh ON sh.id = e.shift_id
        JOIN groups g ON g.id = e.group_id JOIN subject_assignments a ON a.group_id = g.id
        JOIN subjects s ON s.id = a.subject_id JOIN academic_periods ap ON ap.id = a.period_id
        JOIN grading_scales gs ON gs.id = a.grading_scale_id
-       WHERE st.student_number = ? AND p.name = ? AND sh.name = ? AND g.name = ?
-       AND (s.code = ? OR s.name = ?) AND ap.name = ?`,
-      studentNumber, programName, shiftName, groupName, subjectInput, subjectInput, periodName
+       WHERE st.student_number = ? AND st.is_active = 1
+       AND (s.code = ? COLLATE NOCASE OR s.name = ? COLLATE NOCASE)
+       AND (? = '' OR g.name = ? COLLATE NOCASE)
+       AND (? = '' OR ap.name = ? COLLATE NOCASE)
+       ORDER BY ap.sequence DESC, a.id DESC`,
+      studentNumber, subjectInput, subjectInput, groupName, groupName, periodName, periodName
     );
-    if (!match) {
-      errors.push({ row: rowNumber, message: "No coincide el alumno, programa, turno, grupo, materia o periodo." });
+    if (!candidates.length) {
+      errors.push({ row: rowNumber, message: "No se encontro una asignacion activa para esa matricula y materia." });
       return;
     }
+    if (candidates.length > 1) {
+      errors.push({ row: rowNumber, message: "Hay mas de una coincidencia. Agrega Grupo y Periodo para identificarla." });
+      return;
+    }
+    const match = candidates[0];
     if (match.grade_entry_locked) {
-      errors.push({ row: rowNumber, message: "La captura de esta materia está cerrada." });
+      errors.push({ row: rowNumber, message: "La captura de esta materia esta cerrada." });
       return;
     }
     if (score < match.min_score || score > match.max_score) {
-      errors.push({ row: rowNumber, message: `La calificación debe estar entre ${match.min_score} y ${match.max_score}.` });
+      errors.push({ row: rowNumber, message: `La calificacion debe estar entre ${match.min_score} y ${match.max_score}.` });
       return;
     }
     const existing = get<{ id: number }>(
@@ -512,10 +530,10 @@ gradesRouter.post("/import/preview", requirePermission("grades.import"), upload.
       studentNumber,
       studentName: match.student_name,
       subject: match.subject_name,
-      group: groupName,
-      period: periodName,
+      group: match.group_name,
+      period: match.period_name,
       score,
-      comments: value(source, "Observaciones", "Comentarios"),
+      comments: value(source, "Observaciones", "Comentarios", "Notas"),
       existingGradeId: existing?.id ?? null
     });
   });
@@ -544,7 +562,7 @@ gradesRouter.post("/import/preview", requirePermission("grades.import"), upload.
 gradesRouter.post("/import/apply", requirePermission("grades.import"), (req: AuthenticatedRequest, res) => {
   const previewId = String(req.body.previewId ?? "");
   const preview = previews.get(previewId);
-  if (!preview || Date.now() - preview.createdAt > 15 * 60 * 1000) throw new ApiError(400, "La vista previa expiró. Carga el archivo de nuevo.");
+  if (!preview || Date.now() - preview.createdAt > 15 * 60 * 1000) throw new ApiError(400, "La vista previa expirÃ³. Carga el archivo de nuevo.");
   const updateExisting = req.body.existingMode === "update";
   let created = 0;
   let updated = 0;
@@ -555,7 +573,7 @@ gradesRouter.post("/import/apply", requirePermission("grades.import"), (req: Aut
         ignored++;
         return;
       }
-      saveGrade(req.user!.id, item.assignmentId, item.enrollmentId, item.score, optionalText(item.comments, 1000), "Importación desde archivo");
+      saveGrade(req.user!.id, item.assignmentId, item.enrollmentId, item.score, optionalText(item.comments, 1000), "ImportaciÃ³n desde archivo");
       if (item.existingGradeId) updated++;
       else created++;
     });
@@ -587,11 +605,11 @@ gradesRouter.get("/export/file", requirePermission("grades.export"), (req, res) 
     }
   });
   const records = all<any>(
-    `SELECT st.student_number AS "Matrícula",
+    `SELECT st.student_number AS "MatrÃ­cula",
      TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) AS "Alumno",
      p.name AS "Programa", sh.name AS "Turno", g.name AS "Grupo", s.name AS "Materia",
      t.full_name AS "Docente", ap.name AS "Periodo", sc.name AS "Ciclo",
-     gr.final_score AS "Calificación", gr.status AS "Estatus", gr.comments AS "Observaciones"
+     gr.final_score AS "CalificaciÃ³n", gr.status AS "Estatus", gr.comments AS "Observaciones"
      FROM grades gr JOIN enrollments e ON e.id = gr.enrollment_id
      JOIN students st ON st.id = e.student_id JOIN programs p ON p.id = e.program_id
      JOIN shifts sh ON sh.id = e.shift_id JOIN groups g ON g.id = e.group_id
@@ -610,10 +628,11 @@ gradesRouter.get("/export/file", requirePermission("grades.export"), (req, res) 
     const doc = createPdf(res, "calificaciones.pdf", { layout: "landscape" });
     doc.fillColor("#102a43").font("Helvetica-Bold").fontSize(18).text("Concentrado de calificaciones");
     doc.moveDown();
-    pdfTable(doc, ["Matrícula", "Alumno", "Grupo", "Materia", "Periodo", "Calif."], records.map((row) => [
-      row["Matrícula"], row.Alumno, row.Grupo, row.Materia, row.Periodo, row["Calificación"]
+    pdfTable(doc, ["MatrÃ­cula", "Alumno", "Grupo", "Materia", "Periodo", "Calif."], records.map((row) => [
+      row["MatrÃ­cula"], row.Alumno, row.Grupo, row.Materia, row.Periodo, row["CalificaciÃ³n"]
     ]), [70, 180, 60, 180, 100, 50]);
     return doc.end();
   }
   return sendWorkbook(res, "calificaciones.xlsx", "Calificaciones", records);
 });
+

@@ -279,7 +279,8 @@ function ensureEnhancementData() {
        SELECT id, code || '-PLAN-2026', name || ' - Plan 2026', '2026',
               'Plan inicial generado a partir de las materias existentes'
        FROM programs
-       WHERE EXISTS (SELECT 1 FROM subjects s WHERE s.program_id = programs.id)`
+       WHERE EXISTS (SELECT 1 FROM subjects s WHERE s.program_id = programs.id)
+       AND NOT EXISTS (SELECT 1 FROM academic_plans ap WHERE ap.program_id = programs.id)`
     );
     run(
       `INSERT OR IGNORE INTO plan_subjects(plan_id, subject_id, subject_type, credits, recommended_period)
