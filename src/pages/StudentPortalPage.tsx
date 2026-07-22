@@ -1,6 +1,3 @@
-El error era que quedaron abiertos `Array<{ ...` y el tipo `PortalData`. Aquí está el texto corregido listo para pegar:
-
-```tsx
 import { useEffect, useState } from "react";
 import { Award, Banknote, BookOpenCheck, CircleGauge, Clock3, GraduationCap, ReceiptText, WalletCards } from "lucide-react";
 import { api } from "../lib/api";
