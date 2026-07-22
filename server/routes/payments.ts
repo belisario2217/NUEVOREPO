@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import crypto from "node:crypto";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
@@ -168,6 +168,18 @@ function validMonth(value: unknown) {
   const text = cleanText(value || currentMonth(), 7);
   if (!/^\d{4}-\d{2}$/.test(text)) throw new ApiError(400, "El mes debe tener formato AAAA-MM.");
   return text;
+}
+
+function addBillingMonths(month: string, offset: number) {
+  const date = new Date(`${month}-01T00:00:00`);
+  if (Number.isNaN(date.getTime())) throw new ApiError(400, "El mes debe tener formato AAAA-MM.");
+  date.setMonth(date.getMonth() + offset);
+  return date.toISOString().slice(0, 7);
+}
+
+function semesterMonths(startMonth: string, totalMonths: unknown) {
+  const count = Math.min(12, Math.max(1, Math.trunc(Number(totalMonths ?? 6))));
+  return Array.from({ length: count }, (_, index) => addBillingMonths(startMonth, index));
 }
 
 function conceptTypeFromText(value: unknown): "tuition" | "enrollment" | "reenrollment" | "other" {
@@ -385,7 +397,7 @@ function drawStatementPdf(res: any, accountData: ReturnType<typeof fullAccount>)
   doc.moveDown(0.4);
   pdfTable(doc, ["Periodo", "Vence", "Esperado", "Pagado", "Pendiente", "Estatus"], billing.schedule.map((item) => [
     item.period, item.dueDate ?? "-", money(item.expectedAmount), money(item.paidAmount), money(item.pendingAmount),
-    item.status === "paid" ? "Pagado" : item.status === "waived" ? "Condonado" : item.status === "not_due" ? "Por vencer" : "Pendiente"
+    item.status === "paid" ? "Pagado" : item.status === "partial" ? "Parcial" : "Pendiente"
   ]), [55, 82, 92, 92, 92, 90]);
   doc.fontSize(7).fillColor("#627d98").text(`Generado: ${new Date().toLocaleString("es-MX")}`, 42, 747, { width: 528, align: "center" });
   doc.end();
@@ -447,7 +459,7 @@ paymentsRouter.post("/import/preview", requirePermission("payments.manage"), upl
   const errors: Array<{ row: number; message: string }> = [];
   rows.forEach((source, index) => {
     const rowNumber = index + 2;
-    const studentNumber = value(source, "Matricula", "Matrícula");
+    const studentNumber = value(source, "Matricula", "MatrÃ­cula");
     const originalFolio = value(source, "Folio", "Recibo", "Referencia").toUpperCase();
     const paidAtInput = value(source, "Fecha de pago", "Fecha");
     const amountInput = value(source, "Monto", "Importe");
@@ -494,7 +506,7 @@ paymentsRouter.post("/import/preview", requirePermission("payments.manage"), upl
       return;
     }
     const folio = uniqueImportFolio(studentNumber, originalFolio, paidAt, rowNumber);
-    const paymentMethod = optionalText(value(source, "Metodo", "Método", "M�todo", "Forma de pago"), 80);
+    const paymentMethod = optionalText(value(source, "Metodo", "MÃ©todo", "Método", "Forma de pago"), 80);
     const concept = cleanText(value(source, "Concepto") || "Colegiatura", 120) || "Colegiatura";
     const conceptType = conceptTypeFromText(concept);
     const coveredMonth = conceptType === "tuition" ? validCoveredMonth(value(source, "Mes", "Mes colegiatura", "Colegiatura mes")) : null;
@@ -655,7 +667,8 @@ paymentsRouter.patch("/student/:id/billing-config", requirePermission("payments.
 
 paymentsRouter.get("/tuition-grid", requirePermission("tuition.manage"), (req, res) => {
   const groupId = req.query.groupId ? asId(req.query.groupId, "Grupo") : null;
-  const month = validMonth(req.query.month || currentMonth());
+  const startMonth = validMonth(req.query.startMonth || req.query.month || currentMonth());
+  const months = semesterMonths(startMonth, req.query.months);
   const students = all<any>(
     `SELECT st.id AS studentId, st.student_number, TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) AS student_name,
      e.id AS enrollmentId, g.name AS group_name, COALESCE(ap.tuition_amount, 0) AS tuition_amount
@@ -668,104 +681,122 @@ paymentsRouter.get("/tuition-grid", requirePermission("tuition.manage"), (req, r
     groupId,
     groupId
   );
+  const placeholders = months.map(() => "?").join(", ");
   const charges = all<any>(
     `SELECT id, student_id, billing_month, amount, status, payment_id, notes
-     FROM student_tuition_charges WHERE billing_month = ?`,
-    month
+     FROM student_tuition_charges WHERE billing_month IN (${placeholders})`,
+    ...months
   );
   res.json({
-    month,
+    startMonth,
+    months,
     records: students.map((student) => {
-      const charge = charges.find((item) => item.student_id === student.studentId);
       return {
         ...student,
-        chargeId: charge?.id ?? null,
-        amount: Number(charge?.amount ?? student.tuition_amount ?? 0),
-        paid: charge?.status === "paid",
-        status: charge?.status ?? "pending",
-        notes: charge?.notes ?? ""
+        months: months.map((month) => {
+          const charge = charges.find((item) => item.student_id === student.studentId && item.billing_month === month);
+          return {
+            month,
+            chargeId: charge?.id ?? null,
+            amount: Number(charge?.amount ?? student.tuition_amount ?? 0),
+            paid: charge?.status === "paid",
+            status: charge?.status ?? "pending",
+            notes: charge?.notes ?? ""
+          };
+        })
       };
     })
   });
 });
 
 paymentsRouter.patch("/tuition-grid", requirePermission("tuition.manage"), (req: AuthenticatedRequest, res) => {
-  const month = validMonth(req.body.month);
-  const rows: Array<{ studentId: unknown; amount?: unknown; paid?: unknown; notes?: unknown }> = Array.isArray(req.body.rows) ? req.body.rows : [];
+  const startMonth = validMonth(req.body.startMonth || req.body.month || currentMonth());
+  const months = Array.isArray(req.body.months)
+    ? req.body.months.map((item: unknown) => validMonth(item))
+    : semesterMonths(startMonth, req.body.monthsCount);
+  const rows: Array<{
+    studentId: unknown;
+    months?: Array<{ month: unknown; amount?: unknown; paid?: unknown; notes?: unknown }>;
+  }> = Array.isArray(req.body.rows) ? req.body.rows : [];
   let updated = 0;
   transaction(() => {
     rows.forEach((row) => {
       const studentId = asId(row.studentId, "Alumno");
       const account = getStudentAccount(studentId);
       if (!account) return;
-      const amount = Number(row.amount ?? account.tuitionAmount ?? 0);
-      if (!Number.isFinite(amount) || amount < 0) throw new ApiError(400, "El monto de colegiatura no es valido.");
-      const paid = Boolean(row.paid);
-      let paymentId: number | null = null;
-      if (paid) {
-        const folio = `COL-${account.student_number}-${month.replace("-", "")}`;
-        const existing = get<{ id: number }>("SELECT id FROM student_payments WHERE folio = ?", folio);
-        if (existing) {
-          paymentId = existing.id;
-          run(
-            `UPDATE student_payments SET amount = ?, paid_at = ?, concept = 'Colegiatura', concept_type = 'tuition',
-             covered_month = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-            amount,
-            `${month}-10`,
-            month,
-            req.user!.id,
-            paymentId
-          );
+      const rowMonths = Array.isArray(row.months) ? row.months : [];
+      months.forEach((month) => {
+        const cell = rowMonths.find((item) => validMonth(item.month) === month);
+        if (!cell) return;
+        const amount = Number(cell.amount ?? account.tuitionAmount ?? 0);
+        if (!Number.isFinite(amount) || amount < 0) throw new ApiError(400, "El monto de colegiatura no es valido.");
+        const paid = Boolean(cell.paid);
+        let paymentId: number | null = null;
+        if (paid) {
+          const folio = `COL-${account.student_number}-${month.replace("-", "")}`;
+          const existing = get<{ id: number }>("SELECT id FROM student_payments WHERE folio = ?", folio);
+          if (existing) {
+            paymentId = existing.id;
+            run(
+              `UPDATE student_payments SET amount = ?, paid_at = ?, concept = 'Colegiatura', concept_type = 'tuition',
+               covered_month = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+              amount,
+              `${month}-10`,
+              month,
+              req.user!.id,
+              paymentId
+            );
+          } else {
+            const inserted = run(
+              `INSERT INTO student_payments(student_id, enrollment_id, plan_id, folio, amount, paid_at, payment_method,
+               concept, concept_type, covered_month, notes, created_by, updated_by)
+               VALUES (?, ?, ?, ?, ?, ?, 'Administrativo', 'Colegiatura', 'tuition', ?, ?, ?, ?)`,
+              studentId,
+              account.enrollmentId,
+              account.planId,
+              folio,
+              amount,
+              `${month}-10`,
+              month,
+              optionalText(cell.notes, 800),
+              req.user!.id,
+              req.user!.id
+            );
+            paymentId = Number(inserted.lastInsertRowid);
+          }
         } else {
-          const inserted = run(
-            `INSERT INTO student_payments(student_id, enrollment_id, plan_id, folio, amount, paid_at, payment_method,
-             concept, concept_type, covered_month, notes, created_by, updated_by)
-             VALUES (?, ?, ?, ?, ?, ?, 'Administrativo', 'Colegiatura', 'tuition', ?, ?, ?, ?)`,
+          const existing = get<{ payment_id: number | null }>(
+            "SELECT payment_id FROM student_tuition_charges WHERE student_id = ? AND billing_month = ?",
             studentId,
-            account.enrollmentId,
-            account.planId,
-            folio,
-            amount,
-            `${month}-10`,
-            month,
-            optionalText(row.notes, 800),
-            req.user!.id,
-            req.user!.id
+            month
           );
-          paymentId = Number(inserted.lastInsertRowid);
+          if (existing?.payment_id) run("DELETE FROM student_payments WHERE id = ?", existing.payment_id);
         }
-      } else {
-        const existing = get<{ payment_id: number | null }>(
-          "SELECT payment_id FROM student_tuition_charges WHERE student_id = ? AND billing_month = ?",
+        run(
+          `INSERT INTO student_tuition_charges(student_id, enrollment_id, billing_month, due_date, amount, status,
+           payment_id, notes, created_by, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(student_id, billing_month) DO UPDATE SET enrollment_id = excluded.enrollment_id,
+           due_date = excluded.due_date, amount = excluded.amount, status = excluded.status,
+           payment_id = excluded.payment_id, notes = excluded.notes, updated_by = excluded.updated_by,
+           updated_at = CURRENT_TIMESTAMP`,
           studentId,
-          month
+          account.enrollmentId,
+          month,
+          `${month}-10`,
+          amount,
+          paid ? "paid" : "pending",
+          paymentId,
+          optionalText(cell.notes, 800),
+          req.user!.id,
+          req.user!.id
         );
-        if (existing?.payment_id) run("DELETE FROM student_payments WHERE id = ?", existing.payment_id);
-      }
-      run(
-        `INSERT INTO student_tuition_charges(student_id, enrollment_id, billing_month, due_date, amount, status,
-         payment_id, notes, created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(student_id, billing_month) DO UPDATE SET enrollment_id = excluded.enrollment_id,
-         due_date = excluded.due_date, amount = excluded.amount, status = excluded.status,
-         payment_id = excluded.payment_id, notes = excluded.notes, updated_by = excluded.updated_by,
-         updated_at = CURRENT_TIMESTAMP`,
-        studentId,
-        account.enrollmentId,
-        month,
-        `${month}-10`,
-        amount,
-        paid ? "paid" : "pending",
-        paymentId,
-        optionalText(row.notes, 800),
-        req.user!.id,
-        req.user!.id
-      );
-      updated++;
+        updated++;
+      });
     });
   });
-  logActivity(req, "update-tuition-grid", "student_tuition_charges", month, { updated });
-  res.json({ month, updated });
+  logActivity(req, "update-tuition-grid", "student_tuition_charges", startMonth, { updated, months });
+  res.json({ startMonth, months, updated });
 });
 
 paymentsRouter.get("/overview", requirePermission("payments.view"), (req, res) => {
