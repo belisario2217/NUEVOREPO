@@ -24,6 +24,8 @@ type Payment = {
   paid_at: string;
   payment_method: string | null;
   concept: string;
+  concept_type?: "tuition" | "enrollment" | "reenrollment" | "other";
+  covered_month?: string | null;
   notes: string | null;
 };
 
@@ -83,6 +85,7 @@ const emptyForm = {
   paidAt: today,
   paymentMethod: "Transferencia",
   concept: "Colegiatura",
+  coveredMonth: month,
   notes: ""
 };
 
@@ -150,6 +153,7 @@ export function PaymentsPage() {
       paidAt: payment.paid_at,
       paymentMethod: payment.payment_method ?? "",
       concept: payment.concept,
+      coveredMonth: payment.covered_month ?? month,
       notes: payment.notes ?? ""
     });
     setOpen(true);
@@ -167,6 +171,8 @@ export function PaymentsPage() {
         paidAt: form.paidAt,
         paymentMethod: form.paymentMethod,
         concept: form.concept,
+        conceptType: form.concept.toLowerCase().includes("colegiatura") ? "tuition" : "other",
+        coveredMonth: form.concept.toLowerCase().includes("colegiatura") ? form.coveredMonth : null,
         notes: form.notes
       };
       const updated = await api<AccountData>(editing ? `/payments/${editing.id}` : "/payments", {
@@ -287,6 +293,7 @@ export function PaymentsPage() {
             <Field label="Fecha" required><input type="date" value={form.paidAt} onChange={(event) => setForm({ ...form, paidAt: event.target.value })} required /></Field>
             <Field label="Monto" required><input type="number" min="0.01" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></Field>
             <Field label="Metodo"><input value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value })} /></Field>
+            <Field label="Mes colegiatura"><input type="month" value={form.coveredMonth} onChange={(event) => setForm({ ...form, coveredMonth: event.target.value || month })} /></Field>
           </div>
           <Field label="Concepto" required><input value={form.concept} onChange={(event) => setForm({ ...form, concept: event.target.value })} required /></Field>
           <Field label="Notas"><textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>
