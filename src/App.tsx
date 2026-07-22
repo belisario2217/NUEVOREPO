@@ -16,6 +16,9 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => 
 const PlansPage = lazy(() => import("./pages/PlansPage").then((module) => ({ default: module.PlansPage })));
 const StudentPortalPage = lazy(() => import("./pages/StudentPortalPage").then((module) => ({ default: module.StudentPortalPage })));
 const PaymentsPage = lazy(() => import("./pages/PaymentsPage").then((module) => ({ default: module.PaymentsPage })));
+const TuitionGridPage = lazy(() => import("./pages/TuitionGridPage").then((module) => ({ default: module.TuitionGridPage })));
+const MessagesAdminPage = lazy(() => import("./pages/MessagesAdminPage").then((module) => ({ default: module.MessagesAdminPage })));
+const StudentMessagesPage = lazy(() => import("./pages/StudentMessagesPage").then((module) => ({ default: module.StudentMessagesPage })));
 
 function HomePage() {
   const { user, can } = useAuth();
@@ -45,9 +48,12 @@ export function App() {
               <Route path="/analiticas" element={<AnalyticsPage />} />
               <Route path="/reportes" element={<ReportsPage />} />
               <Route path="/cobros" element={<PaymentsPage />} />
+              <Route path="/colegiaturas-mensuales" element={<TuitionGridPage />} />
+              <Route path="/mensajes-admin" element={<MessagesAdminPage />} />
               <Route path="/catalogos" element={<CatalogsPage />} />
               <Route path="/planes" element={<PlansPage />} />
               <Route path="/mi-avance" element={<StudentPortalPage />} />
+              <Route path="/mensajes" element={<StudentMessagesPage />} />
               <Route path="/usuarios" element={<UsersPage />} />
               <Route path="/configuracion" element={<SettingsPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
