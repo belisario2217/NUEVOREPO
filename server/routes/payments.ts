@@ -397,7 +397,7 @@ function drawStatementPdf(res: any, accountData: ReturnType<typeof fullAccount>)
   doc.moveDown(0.4);
   pdfTable(doc, ["Periodo", "Vence", "Esperado", "Pagado", "Pendiente", "Estatus"], billing.schedule.map((item) => [
     item.period, item.dueDate ?? "-", money(item.expectedAmount), money(item.paidAmount), money(item.pendingAmount),
-    item.status === "paid" ? "Pagado" : item.status === "partial" ? "Parcial" : "Pendiente"
+    item.status === "paid" ? "Pagado" : item.status === "waived" ? "Condonado" : item.status === "not_due" ? "Por vencer" : "Pendiente"
   ]), [55, 82, 92, 92, 92, 90]);
   doc.fontSize(7).fillColor("#627d98").text(`Generado: ${new Date().toLocaleString("es-MX")}`, 42, 747, { width: 528, align: "center" });
   doc.end();
@@ -725,7 +725,7 @@ paymentsRouter.patch("/tuition-grid", requirePermission("tuition.manage"), (req:
       const account = getStudentAccount(studentId);
       if (!account) return;
       const rowMonths = Array.isArray(row.months) ? row.months : [];
-      months.forEach((month) => {
+      months.forEach((month: string) => {
         const cell = rowMonths.find((item) => validMonth(item.month) === month);
         if (!cell) return;
         const amount = Number(cell.amount ?? account.tuitionAmount ?? 0);
