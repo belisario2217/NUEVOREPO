@@ -19,6 +19,28 @@
   --white: #ffffff;
 }
 
+.month-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.tuition-cell {
+  display: grid;
+  grid-template-columns: 20px minmax(82px, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 118px;
+}
+
+.tuition-cell input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+}
+
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; margin: 0; }
 body { min-width: 320px; background: #f4f7f9; }
