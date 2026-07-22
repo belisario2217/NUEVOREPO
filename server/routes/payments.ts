@@ -1,4 +1,4 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import crypto from "node:crypto";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
@@ -385,7 +385,7 @@ function drawStatementPdf(res: any, accountData: ReturnType<typeof fullAccount>)
   doc.moveDown(0.4);
   pdfTable(doc, ["Periodo", "Vence", "Esperado", "Pagado", "Pendiente", "Estatus"], billing.schedule.map((item) => [
     item.period, item.dueDate ?? "-", money(item.expectedAmount), money(item.paidAmount), money(item.pendingAmount),
-    item.status === "paid" ? "Pagado" : item.status === "partial" ? "Parcial" : "Pendiente"
+    item.status === "paid" ? "Pagado" : item.status === "waived" ? "Condonado" : item.status === "not_due" ? "Por vencer" : "Pendiente"
   ]), [55, 82, 92, 92, 92, 90]);
   doc.fontSize(7).fillColor("#627d98").text(`Generado: ${new Date().toLocaleString("es-MX")}`, 42, 747, { width: 528, align: "center" });
   doc.end();
@@ -447,7 +447,7 @@ paymentsRouter.post("/import/preview", requirePermission("payments.manage"), upl
   const errors: Array<{ row: number; message: string }> = [];
   rows.forEach((source, index) => {
     const rowNumber = index + 2;
-    const studentNumber = value(source, "Matricula", "MatrÃ­cula");
+    const studentNumber = value(source, "Matricula", "Matrícula");
     const originalFolio = value(source, "Folio", "Recibo", "Referencia").toUpperCase();
     const paidAtInput = value(source, "Fecha de pago", "Fecha");
     const amountInput = value(source, "Monto", "Importe");
@@ -494,7 +494,7 @@ paymentsRouter.post("/import/preview", requirePermission("payments.manage"), upl
       return;
     }
     const folio = uniqueImportFolio(studentNumber, originalFolio, paidAt, rowNumber);
-    const paymentMethod = optionalText(value(source, "Metodo", "MÃ©todo", "Método", "Forma de pago"), 80);
+    const paymentMethod = optionalText(value(source, "Metodo", "Método", "M�todo", "Forma de pago"), 80);
     const concept = cleanText(value(source, "Concepto") || "Colegiatura", 120) || "Colegiatura";
     const conceptType = conceptTypeFromText(concept);
     const coveredMonth = conceptType === "tuition" ? validCoveredMonth(value(source, "Mes", "Mes colegiatura", "Colegiatura mes")) : null;
@@ -691,7 +691,7 @@ paymentsRouter.get("/tuition-grid", requirePermission("tuition.manage"), (req, r
 
 paymentsRouter.patch("/tuition-grid", requirePermission("tuition.manage"), (req: AuthenticatedRequest, res) => {
   const month = validMonth(req.body.month);
-  const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+  const rows: Array<{ studentId: unknown; amount?: unknown; paid?: unknown; notes?: unknown }> = Array.isArray(req.body.rows) ? req.body.rows : [];
   let updated = 0;
   transaction(() => {
     rows.forEach((row) => {
