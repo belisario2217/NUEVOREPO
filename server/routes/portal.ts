@@ -169,6 +169,21 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
   const subjects = [...explicitSubjects, ...baseSubjects, ...gradeOnlySubjects]
     .map((subject) => summarizeSubject(subject, gradeRows))
     .sort((left, right) => left.recommended_period - right.recommended_period || left.name.localeCompare(right.name));
+  const messages = all<any>(
+    `SELECT m.id, m.title, m.body, m.priority, m.created_at
+     FROM portal_messages m
+     WHERE m.is_active = 1
+     AND (m.starts_at IS NULL OR m.starts_at <= date('now'))
+     AND (m.ends_at IS NULL OR m.ends_at >= date('now'))
+     AND (
+       m.target_type = 'all'
+       OR (m.target_type = 'student' AND m.target_id = ?)
+       OR (m.target_type = 'group' AND m.target_id = ?)
+     )
+     ORDER BY CASE m.priority WHEN 'urgent' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, m.created_at DESC`,
+    enrollment.student_id,
+    enrollment.group_id
+  );
 
   const totalCredits = subjects.reduce((sum, subject) => sum + Number(subject.credits), 0);
   const earnedCredits = subjects
@@ -200,6 +215,7 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
       tuitionDueDay: enrollment.tuition_due_day,
       enrolledAt: enrollment.enrolled_at
     }),
+    messages,
     subjects
   });
 });
