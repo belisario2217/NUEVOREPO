@@ -1,3 +1,6 @@
+El error era que quedaron abiertos `Array<{ ...` y el tipo `PortalData`. Aquí está el texto corregido listo para pegar:
+
+```tsx
 import { useEffect, useState } from "react";
 import { Award, Banknote, BookOpenCheck, CircleGauge, Clock3, GraduationCap, ReceiptText, WalletCards } from "lucide-react";
 import { api } from "../lib/api";
@@ -41,6 +44,7 @@ type PortalData = {
       paid_at: string;
       payment_method: string | null;
       concept: string;
+    }>;
   };
   subjects: Array<{
     plan_subject_id: number | null;
@@ -57,7 +61,9 @@ type PortalData = {
     partial_3: number | null;
     final_score: number | null;
     status: "pending" | "passed" | "failed" | null;
+  }>;
 };
+
 function money(value: unknown) {
   return Number(value ?? 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
 }
@@ -74,6 +80,7 @@ export function StudentPortalPage() {
   if (!data) return <div className="loading-panel">Cargando avance curricular...</div>;
 
   const { student, progress, subjects, billing } = data;
+
   return (
     <div className="student-portal page-stack">
       <section className="student-welcome">
@@ -114,6 +121,7 @@ export function StudentPortalPage() {
         </tbody></table></div>
         {!billing.payments.length && <EmptyState icon={<ReceiptText size={25} />} title="Sin pagos registrados" text="Aun no hay pagos capturados en tu expediente." />}
       </section>
+
       <section className="portal-subjects">
         <header className="section-heading"><div><span>Mi carga académica</span><h2>Materias y calificaciones</h2></div><div className="legend"><i className="legend-active" /> CURSADA <i className="legend-inactive" /> Pendiente</div></header>
         <div className="table-wrap"><table><thead><tr><th>Periodo</th><th>Materia</th><th>Tipo / créditos</th><th>Docente</th><th>Parcial 1</th><th>Parcial 2</th><th>Parcial 3</th><th>Promedio</th><th>Resultado</th></tr></thead><tbody>
@@ -132,3 +140,4 @@ export function StudentPortalPage() {
     </div>
   );
 }
+```
