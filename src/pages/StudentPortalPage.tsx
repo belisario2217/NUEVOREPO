@@ -41,15 +41,6 @@ type PortalData = {
       paid_at: string;
       payment_method: string | null;
       concept: string;
-    }>;
-    schedule: Array<{
-      period: number;
-      dueDate: string | null;
-      expectedAmount: number;
-      paidAmount: number;
-      pendingAmount: number;
-      status: "paid" | "partial" | "pending";
-    }>;
   };
   subjects: Array<{
     plan_subject_id: number | null;
@@ -125,22 +116,6 @@ export function StudentPortalPage() {
         </tbody></table></div>
         {!billing.payments.length && <EmptyState icon={<ReceiptText size={25} />} title="Sin pagos registrados" text="Aun no hay pagos capturados en tu expediente." />}
       </section>
-
-      <section className="table-section">
-        <header className="section-heading"><div><span>Colegiaturas</span><h2>Pagos pendientes</h2></div></header>
-        <div className="table-wrap"><table><thead><tr><th>Periodo</th><th>Fecha estimada</th><th>Esperado</th><th>Pagado</th><th>Pendiente</th><th>Estatus</th></tr></thead><tbody>
-          {billing.schedule.map((item) => <tr key={item.period}>
-            <td>{item.period}</td>
-            <td>{item.dueDate ?? <span className="muted-cell">Sin fecha</span>}</td>
-            <td>{money(item.expectedAmount)}</td>
-            <td>{money(item.paidAmount)}</td>
-            <td>{money(item.pendingAmount)}</td>
-            <td><StatusBadge active={item.status === "paid"} label={item.status === "paid" ? "Pagado" : item.status === "partial" ? "Parcial" : "Pendiente"} /></td>
-          </tr>)}
-        </tbody></table></div>
-        {!billing.schedule.length && <EmptyState icon={<WalletCards size={25} />} title="Colegiatura sin configurar" text="Control escolar debe configurar el monto en tu plan academico." />}
-      </section>
-
       <section className="portal-subjects">
         <header className="section-heading"><div><span>Mi carga académica</span><h2>Materias y calificaciones</h2></div><div className="legend"><i className="legend-active" /> CURSADA <i className="legend-inactive" /> Pendiente</div></header>
         <div className="table-wrap"><table><thead><tr><th>Periodo</th><th>Materia</th><th>Tipo / créditos</th><th>Docente</th><th>Parcial 1</th><th>Parcial 2</th><th>Parcial 3</th><th>Promedio</th><th>Resultado</th></tr></thead><tbody>
