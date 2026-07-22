@@ -57,9 +57,7 @@ type PortalData = {
     partial_3: number | null;
     final_score: number | null;
     status: "pending" | "passed" | "failed" | null;
-  }>;
 };
-
 function money(value: unknown) {
   return Number(value ?? 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
 }
