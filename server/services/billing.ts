@@ -21,9 +21,23 @@ export type PaymentRecord = {
   paid_at: string;
   payment_method: string | null;
   concept: string;
+  concept_type: "tuition" | "enrollment" | "reenrollment" | "other";
+  covered_month: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type TuitionChargeRecord = {
+  id: number;
+  student_id: number;
+  enrollment_id: number | null;
+  billing_month: string;
+  due_date: string | null;
+  amount: number;
+  status: "pending" | "paid" | "waived";
+  payment_id: number | null;
+  notes: string | null;
 };
 
 export type BillingSummary = {
@@ -34,6 +48,8 @@ export type BillingSummary = {
   expectedAmount: number;
   accruedAmount: number;
   paidAmount: number;
+  tuitionPaidAmount: number;
+  otherPaidAmount: number;
   balance: number;
   paidInstallments: number;
   pendingInstallments: number;
@@ -42,14 +58,19 @@ export type BillingSummary = {
 export type TuitionScheduleItem = {
   period: number;
   dueDate: string | null;
+  billingMonth: string | null;
   expectedAmount: number;
   paidAmount: number;
   pendingAmount: number;
-  status: "paid" | "partial" | "pending" | "not_due";
+  status: "paid" | "partial" | "pending" | "not_due" | "waived";
 };
 
 function money(value: number) {
   return Number(value.toFixed(2));
+}
+
+function currentMonth() {
+  return new Date().toISOString().slice(0, 7);
 }
 
 function addMonths(dateText: string | null, months: number) {
@@ -58,6 +79,10 @@ function addMonths(dateText: string | null, months: number) {
   if (Number.isNaN(date.getTime())) return null;
   date.setMonth(date.getMonth() + months);
   return date.toISOString().slice(0, 10);
+}
+
+function monthFromDate(dateText: string | null) {
+  return dateText?.slice(0, 7) ?? null;
 }
 
 function clampDay(year: number, monthIndex: number, day: number) {
@@ -75,88 +100,110 @@ function dueDate(startDateText: string | null, dueDay: number, months: number) {
   return date.toISOString().slice(0, 10);
 }
 
-function accruedInstallments(source: BillingSource, totalInstallments: number) {
+function fallbackInstallments(source: BillingSource) {
+  return Math.max(0, Math.trunc(Number(source.durationPeriods ?? 0)) * 6);
+}
+
+function fallbackSchedule(source: BillingSource) {
+  const tuitionAmount = Math.max(0, Number(source.tuitionAmount ?? 0));
+  const totalInstallments = fallbackInstallments(source);
+  if (!tuitionAmount || !totalInstallments) return [] as TuitionChargeRecord[];
   const startDate = source.billingStartDate ?? source.enrolledAt;
   const dueDay = Math.max(1, Math.min(31, Math.trunc(Number(source.tuitionDueDay ?? 10))));
-  let count = 0;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  for (let index = 0; index < totalInstallments; index++) {
-    const due = dueDate(startDate ?? null, dueDay, index);
-    if (!due) break;
-    const dueAt = new Date(`${due}T00:00:00`);
-    if (dueAt <= today) count++;
-  }
-  return Math.min(totalInstallments, count);
+  return Array.from({ length: totalInstallments }, (_, index) => {
+    const due = dueDate(startDate ?? null, dueDay, index) ?? addMonths(startDate ?? null, index);
+    return {
+      id: 0,
+      student_id: source.studentId,
+      enrollment_id: source.enrollmentId,
+      billing_month: monthFromDate(due) ?? "",
+      due_date: due,
+      amount: tuitionAmount,
+      status: monthFromDate(due) && monthFromDate(due)! <= currentMonth() ? "pending" : "pending",
+      payment_id: null,
+      notes: null
+    } satisfies TuitionChargeRecord;
+  });
 }
 
 export function listStudentPayments(source: BillingSource): PaymentRecord[] {
   return all<PaymentRecord>(
     `SELECT id, student_id, enrollment_id, plan_id, folio, amount, paid_at, payment_method, concept,
-     notes, created_at, updated_at
+     COALESCE(concept_type, CASE WHEN lower(concept) LIKE '%colegiatura%' THEN 'tuition' ELSE 'other' END) AS concept_type,
+     covered_month, notes, created_at, updated_at
      FROM student_payments
-     WHERE student_id = ? AND (? IS NULL OR plan_id = ? OR plan_id IS NULL)
+     WHERE student_id = ?
      ORDER BY paid_at DESC, id DESC`,
-    source.studentId,
-    source.planId,
-    source.planId
+    source.studentId
   );
 }
 
-export function summarizeBilling(source: BillingSource, payments: PaymentRecord[]) {
-  const tuitionAmount = Math.max(0, Number(source.tuitionAmount ?? 0));
-  const totalInstallments = Math.max(0, Math.trunc(Number(source.durationPeriods ?? 0)) * 6);
-  const accrued = accruedInstallments(source, totalInstallments);
-  const expectedPayments = totalInstallments;
-  const expectedAmount = money(tuitionAmount * totalInstallments);
-  const accruedAmount = money(tuitionAmount * accrued);
+export function listTuitionCharges(source: BillingSource): TuitionChargeRecord[] {
+  const charges = all<TuitionChargeRecord>(
+    `SELECT id, student_id, enrollment_id, billing_month, due_date, amount, status, payment_id, notes
+     FROM student_tuition_charges
+     WHERE student_id = ?
+     ORDER BY billing_month, id`,
+    source.studentId
+  );
+  return charges.length ? charges : fallbackSchedule(source);
+}
+
+export function summarizeBilling(source: BillingSource, payments: PaymentRecord[], charges: TuitionChargeRecord[]) {
+  const tuitionAmount = Math.max(0, Number(source.tuitionAmount ?? charges.find((charge) => charge.amount > 0)?.amount ?? 0));
+  const totalInstallments = charges.length;
+  const accruedCharges = charges.filter((charge) => charge.billing_month <= currentMonth());
+  const paidCharges = charges.filter((charge) => charge.status === "paid" || charge.status === "waived");
+  const tuitionPayments = payments.filter((payment) => payment.concept_type === "tuition");
   const paidAmount = money(payments.reduce((sum, payment) => sum + Number(payment.amount), 0));
-  const balance = money(Math.max(0, accruedAmount - paidAmount));
-  const paidInstallments = tuitionAmount > 0
-    ? Math.min(totalInstallments, Math.floor(paidAmount / tuitionAmount))
-    : 0;
+  const tuitionPaidAmount = money(tuitionPayments.reduce((sum, payment) => sum + Number(payment.amount), 0));
+  const expectedAmount = money(charges.reduce((sum, charge) => sum + Number(charge.amount), 0));
+  const accruedAmount = money(accruedCharges.reduce((sum, charge) => sum + Number(charge.amount), 0));
+  const coveredByStatus = money(paidCharges.reduce((sum, charge) => sum + Number(charge.amount), 0));
+  const balance = money(Math.max(0, accruedAmount - Math.max(tuitionPaidAmount, coveredByStatus)));
   return {
     tuitionAmount,
-    expectedPayments,
+    expectedPayments: totalInstallments,
     totalInstallments,
-    accruedInstallments: accrued,
+    accruedInstallments: accruedCharges.length,
     expectedAmount,
     accruedAmount,
     paidAmount,
+    tuitionPaidAmount,
+    otherPaidAmount: money(paidAmount - tuitionPaidAmount),
     balance,
-    paidInstallments,
-    pendingInstallments: Math.max(0, accrued - paidInstallments)
+    paidInstallments: paidCharges.length,
+    pendingInstallments: accruedCharges.filter((charge) => charge.status === "pending").length
   } satisfies BillingSummary;
 }
 
-export function buildTuitionSchedule(source: BillingSource, summary: BillingSummary) {
-  if (!summary.totalInstallments || !summary.tuitionAmount) return [] satisfies TuitionScheduleItem[];
-  let remainingPaid = summary.paidAmount;
-  const startDate = source.billingStartDate ?? source.enrolledAt;
-  const dueDay = Math.max(1, Math.min(31, Math.trunc(Number(source.tuitionDueDay ?? 10))));
-  return Array.from({ length: summary.totalInstallments }, (_, index) => {
-    const period = index + 1;
-    const paidAmount = money(Math.min(summary.tuitionAmount, Math.max(0, remainingPaid)));
-    remainingPaid = money(Math.max(0, remainingPaid - summary.tuitionAmount));
-    const pendingAmount = money(Math.max(0, summary.tuitionAmount - paidAmount));
-    const isAccrued = period <= summary.accruedInstallments;
+export function buildTuitionSchedule(charges: TuitionChargeRecord[], payments: PaymentRecord[]) {
+  return charges.map((charge, index) => {
+    const payment = charge.payment_id ? payments.find((item) => item.id === charge.payment_id) : null;
+    const paidAmount = charge.status === "paid" ? Number(payment?.amount ?? charge.amount) : 0;
+    const pendingAmount = charge.status === "pending" && charge.billing_month <= currentMonth()
+      ? Math.max(0, Number(charge.amount) - paidAmount)
+      : 0;
     return {
-      period,
-      dueDate: dueDate(startDate, dueDay, index) ?? addMonths(startDate, index),
-      expectedAmount: summary.tuitionAmount,
-      paidAmount,
-      pendingAmount: isAccrued ? pendingAmount : 0,
-      status: pendingAmount <= 0 ? "paid" : paidAmount > 0 ? "partial" : isAccrued ? "pending" : "not_due"
-    };
+      period: index + 1,
+      dueDate: charge.due_date,
+      billingMonth: charge.billing_month,
+      expectedAmount: Number(charge.amount),
+      paidAmount: money(paidAmount),
+      pendingAmount: money(pendingAmount),
+      status: charge.status === "waived" ? "waived" : charge.status === "paid" ? "paid" : charge.billing_month > currentMonth() ? "not_due" : "pending"
+    } satisfies TuitionScheduleItem;
   });
 }
 
 export function buildBilling(source: BillingSource) {
   const payments = listStudentPayments(source);
-  const summary = summarizeBilling(source, payments);
+  const tuitionCharges = listTuitionCharges(source);
+  const summary = summarizeBilling(source, payments, tuitionCharges);
   return {
     summary,
     payments,
-    schedule: buildTuitionSchedule(source, summary)
+    tuitionCharges,
+    schedule: buildTuitionSchedule(tuitionCharges, payments)
   };
 }
