@@ -105,16 +105,16 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
      a.id AS assignment_id, a.evaluation_mode, ap.sequence AS period_sequence,
      t.full_name AS teacher_name, gr.partial_1, gr.partial_2, gr.partial_3,
      gr.final_score, gr.status, gr.comments, gs.passing_score
-     FROM grades gr
-     JOIN enrollments e ON e.id = gr.enrollment_id
-     JOIN subject_assignments a ON a.id = gr.assignment_id
+     FROM subject_assignments a
      JOIN subjects s ON s.id = a.subject_id
      JOIN academic_periods ap ON ap.id = a.period_id
      JOIN grading_scales gs ON gs.id = a.grading_scale_id
      LEFT JOIN teachers t ON t.id = a.teacher_id
-     WHERE e.student_id = ?
+     LEFT JOIN grades gr ON gr.assignment_id = a.id AND gr.enrollment_id = ?
+     WHERE a.group_id = ? AND a.is_active = 1
      ORDER BY s.name, ap.sequence, a.id`,
-    enrollment.student_id
+    enrollment.enrollment_id,
+    enrollment.group_id
   );
   const explicitSubjects = all<any>(
     `SELECT ss.id AS student_subject_id, NULL AS plan_subject_id, ss.subject_id, s.code, s.name,

@@ -3,6 +3,7 @@ import multer from "multer";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
 import { createPdf, parseWorkbook, pdfTable, sendWorkbook, type TabularRow } from "../services/files.js";
+import { syncEnrollmentGroupSubjects } from "../services/group-subjects.js";
 import { ApiError, asId, cleanText, optionalText, sendCsv } from "../utils.js";
 
 type StudentImportRow = {
@@ -146,7 +147,7 @@ studentsRouter.post("/", requirePermission("students.manage"), (req: Authenticat
       asId(body.statusId, "Estatus")
     );
     const studentId = Number(student.lastInsertRowid);
-    run(
+    const enrollment = run(
       `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, period_id)
        VALUES (?, ?, ?, ?, ?, ?)`,
       studentId,
@@ -156,6 +157,7 @@ studentsRouter.post("/", requirePermission("students.manage"), (req: Authenticat
       asId(body.cycleId, "Ciclo"),
       body.periodId ? asId(body.periodId, "Periodo") : null
     );
+    syncEnrollmentGroupSubjects(Number(enrollment.lastInsertRowid));
     return studentId;
   });
   logActivity(req, "create", "students", id, { studentNumber: body.studentNumber });
@@ -196,6 +198,12 @@ studentsRouter.patch("/:id", requirePermission("students.manage"), (req: Authent
          shift_id = excluded.shift_id, group_id = excluded.group_id, period_id = excluded.period_id, is_active = 1`,
         id, Number(body.programId), Number(body.shiftId), Number(body.groupId), Number(body.cycleId), body.periodId ? Number(body.periodId) : null
       );
+      const enrollment = get<{ id: number }>(
+        "SELECT id FROM enrollments WHERE student_id = ? AND cycle_id = ? AND is_active = 1",
+        id,
+        Number(body.cycleId)
+      );
+      if (enrollment) syncEnrollmentGroupSubjects(enrollment.id);
     }
   });
   logActivity(req, "update", "students", id, body);
@@ -369,6 +377,12 @@ studentsRouter.post("/import/apply", requirePermission("students.import"), (req:
          shift_id = excluded.shift_id, group_id = excluded.group_id, period_id = excluded.period_id, is_active = 1`,
         studentId!, item.programId, item.shiftId, item.groupId, item.cycleId, item.periodId
       );
+      const enrollment = get<{ id: number }>(
+        "SELECT id FROM enrollments WHERE student_id = ? AND cycle_id = ? AND is_active = 1",
+        studentId!,
+        item.cycleId
+      );
+      if (enrollment) syncEnrollmentGroupSubjects(enrollment.id);
     });
   });
   previews.delete(String(req.body.previewId));

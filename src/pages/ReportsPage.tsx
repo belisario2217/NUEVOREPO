@@ -25,6 +25,7 @@ type CurricularSubject = {
   subject_name: string;
   group_name: string | null;
   cycle_name: string | null;
+  teacher_name: string | null;
 };
 
 type CurricularDraft = {
@@ -61,8 +62,6 @@ export function ReportsPage() {
   const [initialStatus, setInitialStatus] = useState<CurricularSubject["status"]>("in_progress");
   const [busy, setBusy] = useState(false);
   const [savingAll, setSavingAll] = useState(false);
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedRows, setSelectedRows] = useState<number[]>([]);
 
   function draftFromRow(row: CurricularSubject): CurricularDraft {
     return {
@@ -109,7 +108,6 @@ export function ReportsPage() {
     const rows = await api<CurricularSubject[]>(`/reports/curricular-subjects?${query}`);
     setCurricularRows(rows);
     setDrafts(Object.fromEntries(rows.map((row) => [row.id, draftFromRow(row)])));
-    setSelectedRows((current) => current.filter((id) => rows.some((row) => row.id === id)));
   }
 
   useEffect(() => {
@@ -184,7 +182,7 @@ export function ReportsPage() {
         body: curricularPayload(draft)
       });
       updateSavedRow(row.id, draft);
-      toast.success("Materia del alumno actualizada.");
+      toast.success("Avance del alumno actualizado.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No fue posible guardar la materia.");
     }
@@ -216,33 +214,6 @@ export function ReportsPage() {
     }
   }
 
-  async function deleteCurricularSubject(row: CurricularSubject) {
-    if (!confirm(`Quitar ${row.subject_name} de ${row.student_name}?`)) return;
-    try {
-      await api(`/reports/curricular-subjects/${row.id}`, { method: "DELETE" });
-      toast.success("Materia retirada del alumno.");
-      await loadCurricularRows();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No fue posible borrar la materia.");
-    }
-  }
-
-  async function deleteSelectedCurricularSubjects() {
-    if (!selectedRows.length) return toast.error("Selecciona al menos una materia.");
-    if (!confirm(`Borrar ${selectedRows.length} materias seleccionadas?`)) return;
-    try {
-      const result = await api<{ count: number }>("/reports/curricular-subjects/delete-many", {
-        method: "POST",
-        body: { ids: selectedRows }
-      });
-      toast.success(`${result.count} materias borradas.`);
-      setSelectedRows([]);
-      await loadCurricularRows();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No fue posible borrar la seleccion.");
-    }
-  }
-
   async function clearGroupCurricularSubjects() {
     if (!groupId) return toast.error("Selecciona un grupo.");
     if (!confirm("Esto borrara TODAS las materias colocadas a los alumnos del grupo seleccionado. Deseas continuar?")) return;
@@ -255,7 +226,6 @@ export function ReportsPage() {
         body: { groupId, confirmation }
       });
       toast.success(`Se limpiaron ${result.count} materias del grupo.`);
-      setSelectedRows([]);
       await loadCurricularRows();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No fue posible limpiar el grupo.");
@@ -284,7 +254,7 @@ export function ReportsPage() {
 
       <section className="curricular-admin">
         <div className="section-heading standalone">
-          <div><span>Trayectoria por semestre</span><h2>Materias colocadas a alumnos</h2></div>
+          <div><span>Carga académica por grupo</span><h2>Materias asignadas al grupo</h2><p>La materia y el docente se asignan al grupo; cada alumno nuevo recibe automáticamente esta carga.</p></div>
         </div>
         <div className="curricular-controls">
           <Field label="Grupo"><Select options={options.groups ?? []} value={groupId} onChange={(event) => setGroupId(event.target.value)} placeholder="Seleccionar grupo" /></Field>
@@ -293,12 +263,10 @@ export function ReportsPage() {
           <Field label="Semestre"><input type="number" min="1" value={semester} onChange={(event) => setSemester(event.target.value || "1")} /></Field>
           <Field label="Ciclo"><Select options={options.cycles ?? []} value={cycleId} onChange={(event) => setCycleId(event.target.value)} placeholder="Ciclo del grupo" /></Field>
           <Field label="Estado inicial"><select value={initialStatus} onChange={(event) => setInitialStatus(event.target.value as CurricularSubject["status"])}><option value="pending">Pendiente</option><option value="in_progress">En curso</option><option value="completed">CURSADA</option></select></Field>
-          {can("reports.generate") && <Button icon={<GraduationCap size={17} />} busy={busy} onClick={assignSemesterSubjects}>Aplicar materias y estado</Button>}
+          {can("reports.generate") && <Button icon={<GraduationCap size={17} />} busy={busy} onClick={assignSemesterSubjects}>Asignar materias del plan al grupo</Button>}
         </div>
         {can("reports.generate") && <div className="bulk-toolbar">
-          <Button icon={<Save size={17} />} busy={savingAll} disabled={!changedRowsCount} onClick={saveAllCurricularSubjects}>Guardar todo{changedRowsCount ? ` (${changedRowsCount})` : ""}</Button>
-          <Button variant="secondary" onClick={() => { setSelectionMode(!selectionMode); setSelectedRows([]); }}>{selectionMode ? "Cancelar seleccion" : "Seleccionar"}</Button>
-          {selectionMode && <Button variant="danger" icon={<Trash2 size={17} />} disabled={!selectedRows.length} onClick={deleteSelectedCurricularSubjects}>Borrar seleccionadas</Button>}
+          <Button icon={<Save size={17} />} busy={savingAll} disabled={!changedRowsCount} onClick={saveAllCurricularSubjects}>Guardar avances{changedRowsCount ? ` (${changedRowsCount})` : ""}</Button>
           <Button variant="danger" icon={<Trash2 size={17} />} busy={busy} onClick={clearGroupCurricularSubjects}>Limpiar grupo</Button>
         </div>}
         <div className="semester-subject-strip">
@@ -308,24 +276,24 @@ export function ReportsPage() {
         </div>
         <div className="table-wrap curricular-table">
           <table>
-            <thead><tr>{selectionMode && <th aria-label="Seleccionar" />}<th>Alumno</th><th>Materia</th><th>Semestre</th><th>Estado</th><th>Promedio</th><th>Notas</th><th>Acciones</th></tr></thead>
+            <thead><tr><th>Alumno</th><th>Materia</th><th>Docente</th><th>Semestre</th><th>Estado</th><th>Promedio</th><th>Notas</th><th>Acciones</th></tr></thead>
             <tbody>
               {curricularRows.map((row) => {
                 const draft = drafts[row.id] ?? draftFromRow(row);
                 return (
                   <tr key={row.id}>
-                    {selectionMode && <td><input type="checkbox" checked={selectedRows.includes(row.id)} onChange={(event) => setSelectedRows(event.target.checked ? [...selectedRows, row.id] : selectedRows.filter((id) => id !== row.id))} /></td>}
                     <td><strong className="table-main">{row.student_name}</strong><span className="table-sub">{row.student_number} - {row.group_name ?? "Sin grupo"}</span></td>
                     <td><strong className="table-main">{row.subject_name}</strong><span className="table-sub">{row.subject_code} - {row.cycle_name ?? "Sin ciclo"}</span></td>
+                    <td>{row.teacher_name ?? <span className="muted-cell">Por asignar</span>}</td>
                     <td><input className="compact-input" type="number" min="1" value={draft.semester} onChange={(event) => setDrafts({ ...drafts, [row.id]: { ...draft, semester: event.target.value } })} /></td>
                     <td><select value={draft.status} onChange={(event) => setDrafts({ ...drafts, [row.id]: { ...draft, status: event.target.value as CurricularSubject["status"] } })}><option value="pending">Pendiente</option><option value="in_progress">Cursando</option><option value="completed">CURSADA</option></select></td>
                     <td><input className="compact-input" type="number" min="0" max="10" step="0.1" value={draft.finalScore} onChange={(event) => setDrafts({ ...drafts, [row.id]: { ...draft, finalScore: event.target.value } })} /></td>
                     <td><input value={draft.notes} onChange={(event) => setDrafts({ ...drafts, [row.id]: { ...draft, notes: event.target.value } })} /></td>
-                    <td><div className="inline-actions"><button title="Guardar" disabled={!isDraftChanged(row)} onClick={() => saveCurricularSubject(row)}><Save size={16} /></button><button title="Borrar" onClick={() => deleteCurricularSubject(row)}><Trash2 size={16} /></button></div></td>
+                    <td><div className="inline-actions"><button title="Guardar avance" disabled={!isDraftChanged(row)} onClick={() => saveCurricularSubject(row)}><Save size={16} /></button></div></td>
                   </tr>
                 );
               })}
-              {!curricularRows.length && <tr><td colSpan={selectionMode ? 8 : 7}><div className="empty-row">No hay materias colocadas con esos filtros.</div></td></tr>}
+              {!curricularRows.length && <tr><td colSpan={8}><div className="empty-row">No hay materias asignadas al grupo con esos filtros.</div></td></tr>}
             </tbody>
           </table>
         </div>

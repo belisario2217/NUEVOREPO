@@ -370,6 +370,7 @@ export function GradesPage() {
 
       <Modal open={assignmentOpen} onClose={() => { setAssignmentOpen(false); setEditingAssignment(null); }} title={editingAssignment ? "Editar materia asignada" : "Nueva asignaci\u00f3n acad\u00e9mica"} size="large">
         <form onSubmit={saveAssignment}>
+          <p className="assignment-scope-note">La materia y el docente quedarán asignados al grupo completo. Los alumnos que se integren después recibirán automáticamente esta misma carga académica.</p>
           <div className="form-grid three">
             <Field label="Materia" required><Select options={options.subjects ?? []} value={assignmentForm.subjectId} onChange={(event) => setAssignmentForm({ ...assignmentForm, subjectId: event.target.value })} required /></Field>
             <Field label="Grupo" required><Select options={options.groups ?? []} value={assignmentForm.groupId} onChange={(event) => setAssignmentForm({ ...assignmentForm, groupId: event.target.value })} required /></Field>

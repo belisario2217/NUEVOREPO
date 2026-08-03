@@ -3,6 +3,7 @@ import multer from "multer";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
 import { createPdf, parseWorkbook, pdfTable, sendWorkbook, type TabularRow } from "../services/files.js";
+import { syncGroupSubjects } from "../services/group-subjects.js";
 import { ApiError, asId, asNumber, cleanText, optionalText, sendCsv } from "../utils.js";
 
 type GradeImportRow = {
@@ -247,6 +248,7 @@ gradesRouter.get("/assignments", requirePermission("grades.view"), (req, res) =>
 
 gradesRouter.post("/assignments", requirePermission("catalogs.manage"), (req: AuthenticatedRequest, res) => {
   const body = req.body;
+  const groupId = asId(body.groupId, "Grupo");
   const evaluationMode = ["partials", "criteria", "final"].includes(body.evaluationMode) ? body.evaluationMode : "partials";
   const criteria = evaluationMode === "criteria" && Array.isArray(body.criteria) ? body.criteria : [];
   const totalWeight = criteria.reduce((sum: number, item: { weight: unknown }) => sum + Number(item.weight || 0), 0);
@@ -256,7 +258,7 @@ gradesRouter.post("/assignments", requirePermission("catalogs.manage"), (req: Au
       `INSERT INTO subject_assignments(subject_id, group_id, teacher_id, period_id, grading_scale_id, evaluation_mode)
        VALUES (?, ?, ?, ?, ?, ?)`,
       asId(body.subjectId, "Materia"),
-      asId(body.groupId, "Grupo"),
+      groupId,
       asId(body.teacherId, "Docente"),
       asId(body.periodId, "Periodo"),
       asId(body.gradingScaleId, "Escala"),
@@ -271,6 +273,7 @@ gradesRouter.post("/assignments", requirePermission("catalogs.manage"), (req: Au
         asNumber(item.weight, "PonderaciÃ³n")
       );
     });
+    syncGroupSubjects(groupId);
     return assignmentId;
   });
   logActivity(req, "create", "subject_assignments", id, body);
@@ -282,6 +285,8 @@ gradesRouter.patch("/assignments/:id", requirePermission("catalogs.manage"), (re
   const current = get(`${assignmentSelect("a.id = ?")}`, id);
   if (!current) throw new ApiError(404, "No se encontr\u00f3 la materia asignada.");
   const body = req.body;
+  const subjectId = asId(body.subjectId, "Materia");
+  const groupId = asId(body.groupId, "Grupo");
   const evaluationMode = ["partials", "criteria", "final"].includes(body.evaluationMode) ? body.evaluationMode : "partials";
   const criteria = evaluationMode === "criteria" && Array.isArray(body.criteria) ? body.criteria : [];
   const totalWeight = criteria.reduce((sum: number, item: { weight: unknown }) => sum + Number(item.weight || 0), 0);
@@ -290,24 +295,29 @@ gradesRouter.patch("/assignments/:id", requirePermission("catalogs.manage"), (re
     run(
       `UPDATE subject_assignments SET subject_id = ?, group_id = ?, teacher_id = ?, period_id = ?,
        grading_scale_id = ?, evaluation_mode = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      asId(body.subjectId, "Materia"),
-      asId(body.groupId, "Grupo"),
+      subjectId,
+      groupId,
       asId(body.teacherId, "Docente"),
       asId(body.periodId, "Periodo"),
       asId(body.gradingScaleId, "Escala"),
       evaluationMode,
       id
     );
-    run(
-      `UPDATE student_subjects SET subject_id = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE subject_id = ?
-       AND enrollment_id IN (
-         SELECT e.id FROM enrollments e WHERE e.group_id = ?
-       )`,
-      asId(body.subjectId, "Materia"),
-      (current as any).subject_id,
-      asId(body.groupId, "Grupo")
-    );
+    if ((current as any).subject_id !== subjectId || (current as any).group_id !== groupId) {
+      run(
+        `DELETE FROM student_subjects
+         WHERE subject_id = ? AND final_score IS NULL
+         AND enrollment_id IN (SELECT id FROM enrollments WHERE group_id = ?)
+         AND NOT EXISTS (
+           SELECT 1 FROM subject_assignments a
+           WHERE a.group_id = ? AND a.subject_id = ? AND a.is_active = 1
+         )`,
+        (current as any).subject_id,
+        (current as any).group_id,
+        (current as any).group_id,
+        (current as any).subject_id
+      );
+    }
     run("DELETE FROM assignment_criteria WHERE assignment_id = ?", id);
     criteria.forEach((item: { criterionId: unknown; weight: unknown }) => {
       run(
@@ -317,6 +327,7 @@ gradesRouter.patch("/assignments/:id", requirePermission("catalogs.manage"), (re
         asNumber(item.weight, "Ponderaci\u00f3n")
       );
     });
+    syncGroupSubjects(groupId);
   });
   const updated = get(`${assignmentSelect("a.id = ?")}`, id);
   logActivity(req, "update", "subject_assignments", id, body);

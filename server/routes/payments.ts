@@ -307,7 +307,7 @@ function statementSettings() {
   ) ?? {
     institution_name: "INSTITUTO DE FORMACIÓN PROFESIONAL S.C.",
     logo_path: "/assets/campus-frontera.jpg",
-    director_name: "JIMENEZ MENDEZ BELISARIO",
+    director_name: "RESPONSABLE DE CONTROL ESCOLAR",
     footer_text: "Documento emitido por Control Escolar.",
     primary_color: "#17324D",
     secondary_color: "#0F766E"

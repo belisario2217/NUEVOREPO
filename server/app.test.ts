@@ -95,6 +95,16 @@ describe("Aula Nova API", () => {
     expect(created.status).toBe(201);
     expect(created.body.evaluation_mode).toBe("partials");
 
+    const studentLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "alumno@campusfrontera.edu.mx", password: "Alumno123!" });
+    const ungradedPortal = await request(app)
+      .get("/api/portal")
+      .set("Authorization", `Bearer ${studentLogin.body.token}`);
+    const inheritedAssignment = ungradedPortal.body.subjects.find((subject: any) => subject.code === "COM-101");
+    expect(inheritedAssignment.teacher_name).toBe(created.body.teacher_name);
+    expect(inheritedAssignment.final_score).toBeNull();
+
     const roster = await request(app)
       .get(`/api/grades/assignment/${created.body.id}/roster`)
       .set("Authorization", `Bearer ${token}`);
@@ -403,6 +413,8 @@ describe("Aula Nova API", () => {
       )
     );
     const [programs, shifts, groups, cycles, periods, statuses] = catalogs.map((response) => response.body.records);
+    const targetGroup = groups.find((group: any) => group.name === "1A");
+    const targetPeriod = periods.find((period: any) => period.cycle_id === targetGroup.cycle_id);
     const created = await request(app)
       .post("/api/students")
       .set("Authorization", `Bearer ${token}`)
@@ -411,11 +423,11 @@ describe("Aula Nova API", () => {
         firstName: "Alex",
         lastName: "Prueba",
         statusId: statuses[0].id,
-        programId: programs[0].id,
-        shiftId: shifts.find((shift: any) => shift.name === "Matutino").id,
-        groupId: groups.find((group: any) => group.name === "1A").id,
-        cycleId: cycles[0].id,
-        periodId: periods[0].id
+        programId: targetGroup.program_id,
+        shiftId: targetGroup.shift_id,
+        groupId: targetGroup.id,
+        cycleId: targetGroup.cycle_id,
+        periodId: targetPeriod.id
       });
     expect(created.status).toBe(201);
     expect(created.body.student_number).toBe("TEST-001");
@@ -424,6 +436,23 @@ describe("Aula Nova API", () => {
       .get("/api/students?search=TEST-001")
       .set("Authorization", `Bearer ${token}`);
     expect(filtered.body.pagination.total).toBe(1);
+
+    const assignments = await request(app)
+      .get(`/api/grades/assignments?groupId=${targetGroup.id}`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(assignments.body.length).toBeGreaterThan(0);
+    const groupAssignment = assignments.body[0];
+    const roster = await request(app)
+      .get(`/api/grades/assignment/${groupAssignment.id}/roster`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(roster.body.students.some((student: any) => student.student_id === created.body.id)).toBe(true);
+
+    const curricular = await request(app)
+      .get(`/api/reports/curricular-subjects?studentId=${created.body.id}`)
+      .set("Authorization", `Bearer ${token}`);
+    const inheritedSubject = curricular.body.find((subject: any) => subject.subject_id === groupAssignment.subject_id);
+    expect(inheritedSubject).toBeTruthy();
+    expect(inheritedSubject.teacher_name).toBe(groupAssignment.teacher_name);
 
     await request(app)
       .delete(`/api/students/${created.body.id}/permanent`)
@@ -623,7 +652,7 @@ describe("Aula Nova API", () => {
         address: settings.address,
         phone: settings.phone,
         email: settings.email,
-        directorName: settings.director_name,
+        directorName: "Lic. Carla Méndez - Control Escolar",
         activeCycleId: settings.active_cycle_id,
         defaultScaleId: settings.default_scale_id,
         footerText: "Pie institucional validado",
@@ -632,6 +661,18 @@ describe("Aula Nova API", () => {
       });
     expect(updated.status).toBe(200);
     expect(updated.body.footer_text).toBe("Pie institucional validado");
+    expect(updated.body.director_name).toBe("Lic. Carla Méndez - Control Escolar");
+
+    const student = await request(app)
+      .get("/api/students?search=AN26001")
+      .set("Authorization", `Bearer ${token}`);
+    const statement = await request(app)
+      .get(`/api/payments/student/${student.body.records[0].id}/statement?format=xlsx`)
+      .set("Authorization", `Bearer ${token}`)
+      .buffer(true)
+      .parse(binaryParser);
+    const workbook = XLSX.read(statement.body, { type: "buffer" });
+    expect(workbook.Sheets["Estado de Cuenta"].C32.v).toBe("Lic. Carla Méndez - Control Escolar");
   });
 
   it("returns analytics and generates a report card PDF", async () => {

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
 import { createPdf, pdfTable, sendWorkbook } from "../services/files.js";
+import { syncGroupSubjects } from "../services/group-subjects.js";
 import { ApiError, asId, asNumber, cleanText, optionalText } from "../utils.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -85,6 +86,7 @@ function ensureGradeAssignment(groupId: number, subjectId: number, cycleId: numb
     context.periodId,
     context.scaleId
   );
+  syncGroupSubjects(groupId);
   return Number(inserted.lastInsertRowid);
 }
 
@@ -391,13 +393,23 @@ reportsRouter.get("/curricular-subjects", requirePermission("reports.view"), (re
     `SELECT ss.id, ss.student_id, ss.enrollment_id, ss.plan_id, ss.subject_id, ss.school_cycle_id,
      ss.semester_number, ss.subject_type, ss.credits, ss.status, ss.final_score, ss.notes,
      st.student_number, TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) AS student_name,
-     s.code AS subject_code, s.name AS subject_name, g.name AS group_name, sc.name AS cycle_name
+     s.code AS subject_code, s.name AS subject_name, g.name AS group_name, sc.name AS cycle_name,
+     t.full_name AS teacher_name
      FROM student_subjects ss
      JOIN students st ON st.id = ss.student_id
      JOIN subjects s ON s.id = ss.subject_id
      LEFT JOIN enrollments e ON e.id = ss.enrollment_id
      LEFT JOIN groups g ON g.id = e.group_id
      LEFT JOIN school_cycles sc ON sc.id = ss.school_cycle_id
+     LEFT JOIN subject_assignments a ON a.id = (
+       SELECT candidate.id FROM subject_assignments candidate
+       JOIN academic_periods candidate_period ON candidate_period.id = candidate.period_id
+       WHERE candidate.group_id = e.group_id AND candidate.subject_id = ss.subject_id
+       AND candidate.is_active = 1
+       AND (ss.school_cycle_id IS NULL OR candidate_period.cycle_id = ss.school_cycle_id)
+       ORDER BY candidate_period.sequence DESC, candidate.id DESC LIMIT 1
+     )
+     LEFT JOIN teachers t ON t.id = a.teacher_id
      WHERE ${clauses.join(" AND ")}
      ORDER BY ss.semester_number, st.last_name, st.first_name, s.name`,
     ...params

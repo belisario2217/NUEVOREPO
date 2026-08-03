@@ -311,7 +311,7 @@ function drawPdfMovements(
     color: primary, bold: true, align: "right", fontSize: 8
   });
   doc.moveTo(198, 660).lineTo(414, 660).strokeColor("#334155").lineWidth(0.7).stroke();
-  doc.fillColor("#334155").font("Helvetica").fontSize(8).text(settings.director_name || "JIMENEZ MENDEZ BELISARIO", 166, 668, {
+  doc.fillColor("#334155").font("Helvetica").fontSize(8).text(settings.director_name || "RESPONSABLE DE CONTROL ESCOLAR", 166, 668, {
     width: 280,
     align: "center",
     ellipsis: true
@@ -592,7 +592,7 @@ function buildStatementCover(
 
     worksheet.mergeCells(rangeAt("C", "F", 31));
     styleRange(worksheet, rowAt(31), 3, rowAt(31), 6, { border: { bottom: { style: "thin", color: { argb: "FF334155" } } } });
-    mergedValue(worksheet, rangeAt("C", "F", 32), settings.director_name || "JIMENEZ MENDEZ BELISARIO", {
+    mergedValue(worksheet, rangeAt("C", "F", 32), settings.director_name || "RESPONSABLE DE CONTROL ESCOLAR", {
       font: { name: "Aptos", size: 9, color: { argb: "FF334155" } },
       alignment: { horizontal: "center", vertical: "middle" }
     });

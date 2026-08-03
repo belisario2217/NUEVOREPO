@@ -112,7 +112,7 @@ export function SettingsPage() {
               <div className="settings-title"><Building2 size={20} /><div><h2>Datos institucionales</h2><p>Información usada en boletas y reportes oficiales.</p></div></div>
               <div className="form-grid two">
                 <Field label="Nombre de la institución" required><input value={settings.institution_name ?? ""} onChange={(event) => setSettings({ ...settings, institution_name: event.target.value })} required /></Field>
-                <Field label="Director o responsable"><input value={settings.director_name ?? ""} onChange={(event) => setSettings({ ...settings, director_name: event.target.value })} /></Field>
+                <Field label="Responsable de Control Escolar"><input value={settings.director_name ?? ""} onChange={(event) => setSettings({ ...settings, director_name: event.target.value })} /></Field>
                 <Field label="Correo"><input type="email" value={settings.email ?? ""} onChange={(event) => setSettings({ ...settings, email: event.target.value })} /></Field>
                 <Field label="Teléfono"><input value={settings.phone ?? ""} onChange={(event) => setSettings({ ...settings, phone: event.target.value })} /></Field>
                 <Field label="Dirección"><input value={settings.address ?? ""} onChange={(event) => setSettings({ ...settings, address: event.target.value })} /></Field>

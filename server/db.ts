@@ -295,6 +295,23 @@ function ensureEnhancementData() {
        ) WHERE plan_id IS NULL`
     );
     run(
+      `INSERT INTO student_subjects(student_id, enrollment_id, plan_id, subject_id, school_cycle_id,
+       semester_number, subject_type, credits, status)
+       SELECT DISTINCT e.student_id, e.id, e.plan_id, a.subject_id, e.cycle_id,
+        COALESCE(ps.recommended_period, 1), COALESCE(ps.subject_type, 'mandatory'),
+        COALESCE(ps.credits, NULLIF(s.credits, 0), 1), 'in_progress'
+       FROM enrollments e
+       JOIN students st ON st.id = e.student_id
+       JOIN subject_assignments a ON a.group_id = e.group_id AND a.is_active = 1
+       JOIN academic_periods period ON period.id = a.period_id AND period.cycle_id = e.cycle_id
+       JOIN subjects s ON s.id = a.subject_id
+       LEFT JOIN plan_subjects ps ON ps.plan_id = e.plan_id AND ps.subject_id = a.subject_id
+       WHERE e.is_active = 1 AND st.is_active = 1
+       ON CONFLICT(student_id, subject_id, school_cycle_id, semester_number)
+       DO UPDATE SET enrollment_id = excluded.enrollment_id, plan_id = excluded.plan_id,
+        subject_type = excluded.subject_type, credits = excluded.credits, updated_at = CURRENT_TIMESTAMP`
+    );
+    run(
       `UPDATE subject_assignments SET evaluation_mode = 'criteria'
        WHERE evaluation_mode = 'partials'
        AND EXISTS (SELECT 1 FROM assignment_criteria ac WHERE ac.assignment_id = subject_assignments.id)`
