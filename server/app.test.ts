@@ -334,6 +334,53 @@ describe("Aula Nova API", () => {
       .get(`/api/payments/student/${studentId}`)
       .set("Authorization", `Bearer ${token}`);
     expect(afterDelete.body.billing.summary.paidAmount).toBe(0);
+
+    const tuitionGridPayment = {
+      startMonth: "2026-08",
+      months: ["2026-08"],
+      rows: [{ studentId, months: [{ month: "2026-08", amount: 1000, paid: true, notes: "0077" }] }]
+    };
+    await request(app)
+      .patch("/api/payments/tuition-grid")
+      .set("Authorization", `Bearer ${token}`)
+      .send(tuitionGridPayment)
+      .expect(200);
+    const afterGridPayment = await request(app)
+      .get(`/api/payments/student/${studentId}`)
+      .set("Authorization", `Bearer ${token}`);
+    const augustPayment = afterGridPayment.body.billing.payments.find(
+      (payment: any) => payment.folio === "COL-AN26001-202608"
+    );
+    expect(augustPayment.concept).toBe("Colegiatura agosto 2026");
+    expect(augustPayment.covered_month).toBe("2026-08");
+
+    tuitionGridPayment.rows[0].months[0].amount = 1100;
+    await request(app)
+      .patch("/api/payments/tuition-grid")
+      .set("Authorization", `Bearer ${token}`)
+      .send(tuitionGridPayment)
+      .expect(200);
+    const afterGridUpdate = await request(app)
+      .get(`/api/payments/student/${studentId}`)
+      .set("Authorization", `Bearer ${token}`);
+    const updatedAugustPayment = afterGridUpdate.body.billing.payments.find(
+      (payment: any) => payment.folio === "COL-AN26001-202608"
+    );
+    expect(updatedAugustPayment.concept).toBe("Colegiatura agosto 2026");
+    expect(updatedAugustPayment.amount).toBe(1100);
+
+    tuitionGridPayment.rows[0].months[0].paid = false;
+    await request(app)
+      .patch("/api/payments/tuition-grid")
+      .set("Authorization", `Bearer ${token}`)
+      .send(tuitionGridPayment)
+      .expect(200);
+    const afterGridDelete = await request(app)
+      .get(`/api/payments/student/${studentId}`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(afterGridDelete.body.billing.payments.some(
+      (payment: any) => payment.folio === "COL-AN26001-202608"
+    )).toBe(false);
   });
 
   it("lists editable catalogs and creates a shift", async () => {

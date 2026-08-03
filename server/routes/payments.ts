@@ -175,6 +175,13 @@ function validMonth(value: unknown) {
   return text;
 }
 
+function tuitionConcept(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const monthName = new Intl.DateTimeFormat("es-MX", { month: "long", timeZone: "UTC" })
+    .format(new Date(Date.UTC(year, monthNumber - 1, 1)));
+  return `Colegiatura ${monthName} ${year}`;
+}
+
 function addBillingMonths(month: string, offset: number) {
   const date = new Date(`${month}-01T00:00:00`);
   if (Number.isNaN(date.getTime())) throw new ApiError(400, "El mes debe tener formato AAAA-MM.");
@@ -738,14 +745,16 @@ paymentsRouter.patch("/tuition-grid", requirePermission("tuition.manage"), (req:
         let paymentId: number | null = null;
         if (paid) {
           const folio = `COL-${account.student_number}-${month.replace("-", "")}`;
+          const concept = tuitionConcept(month);
           const existing = get<{ id: number }>("SELECT id FROM student_payments WHERE folio = ?", folio);
           if (existing) {
             paymentId = existing.id;
             run(
-              `UPDATE student_payments SET amount = ?, paid_at = ?, concept = 'Colegiatura', concept_type = 'tuition',
+              `UPDATE student_payments SET amount = ?, paid_at = ?, concept = ?, concept_type = 'tuition',
                covered_month = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
               amount,
               `${month}-10`,
+              concept,
               month,
               req.user!.id,
               paymentId
@@ -754,13 +763,14 @@ paymentsRouter.patch("/tuition-grid", requirePermission("tuition.manage"), (req:
             const inserted = run(
               `INSERT INTO student_payments(student_id, enrollment_id, plan_id, folio, amount, paid_at, payment_method,
                concept, concept_type, covered_month, notes, created_by, updated_by)
-               VALUES (?, ?, ?, ?, ?, ?, 'Administrativo', 'Colegiatura', 'tuition', ?, ?, ?, ?)`,
+               VALUES (?, ?, ?, ?, ?, ?, 'Administrativo', ?, 'tuition', ?, ?, ?, ?)`,
               studentId,
               account.enrollmentId,
               account.planId,
               folio,
               amount,
               `${month}-10`,
+              concept,
               month,
               optionalText(cell.notes, 800),
               req.user!.id,

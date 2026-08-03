@@ -68,6 +68,9 @@ Al registrar o editar un pago, captura el **NÚMERO DE FOLIO FÍSICO** impreso e
 usando cuatro dígitos del **0001 al 0500**. El sistema conserva por separado su identificador
 interno; los estados de cuenta muestran únicamente el folio físico.
 
+En **Colegiaturas mensuales**, al marcar un mes como pagado el concepto se genera con el
+mes y el año correspondientes, por ejemplo **Colegiatura agosto 2026**.
+
 Ambos documentos toman automáticamente la matrícula, nombre, programa, turno, periodo,
 ciclo, pagos y total pagado. También incorporan el logo y responsable definidos en
 **Configuración**, la fecha y hora de emisión, el lugar **Frontera, Centla, Tab.** y un
