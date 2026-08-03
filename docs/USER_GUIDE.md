@@ -55,6 +55,20 @@ usuario, fecha y motivo. El icono de historial muestra esa bitácora.
 La importación de calificaciones valida matrícula, programa, turno, grupo, materia,
 periodo, rango y estado de captura antes de permitir la confirmación.
 
+## Cobros y estados de cuenta
+
+En **Cobros**, busca y selecciona al alumno para consultar sus pagos y saldo. En el
+encabezado de la cuenta, **PDF carta** abre un estado de cuenta institucional listo para
+imprimir y **Excel** descarga el mismo formato con una segunda pestaña que conserva el
+historial completo de movimientos. Cuando existen más de 12 pagos, tanto el PDF como la
+pestaña **Estado de Cuenta** del Excel agregan automáticamente las hojas carta necesarias;
+cada hoja repite encabezado, datos del alumno, totales, firma y código de verificación.
+
+Ambos documentos toman automáticamente la matrícula, nombre, programa, turno, periodo,
+ciclo, pagos y adeudo. También incorporan el logo y responsable definidos en
+**Configuración**, la fecha y hora de emisión, el lugar **Frontera, Centla, Tab.** y un
+código de verificación SHA-256.
+
 ## Boletas y reportes
 
 En **Reportes** selecciona alumno o grupo para generar boletas PDF. El navegador abre el

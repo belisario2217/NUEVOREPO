@@ -83,6 +83,7 @@ materias, docentes, criterios, escalas y estatus no están fijados en la interfa
 - Importación de calificaciones con actualización o exclusión de existentes.
 - Bloqueo de captura e historial de cada modificación.
 - Exportación de alumnos y calificaciones a XLSX, CSV y PDF.
+- Estados de cuenta individuales en PDF carta y Excel, con identidad institucional, saldo y código de verificación.
 - Boletas individuales y masivas en PDF.
 - Reportes de asistencia, concentrado, materias, docentes, reprobados y destacados.
 - Analíticas por grupo, programa, turno, materia, periodo y docente.

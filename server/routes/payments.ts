@@ -4,6 +4,11 @@ import { logActivity, requirePermission, type AuthenticatedRequest } from "../au
 import { all, get, run, transaction } from "../db.js";
 import { buildBilling, type BillingSource } from "../services/billing.js";
 import { createPdf, parseWorkbook, pdfTable, sendWorkbook, type TabularRow } from "../services/files.js";
+import {
+  sendAccountStatementPdf,
+  sendAccountStatementWorkbook,
+  type StatementInstitutionSettings
+} from "../services/account-statement.js";
 import { ApiError, asId, asNumber, cleanText, optionalText, sendCsv } from "../utils.js";
 import multer from "multer";
 
@@ -288,6 +293,20 @@ function fullAccount(studentId: number) {
   };
 }
 
+function statementSettings() {
+  return get<StatementInstitutionSettings>(
+    `SELECT institution_name, logo_path, director_name, footer_text, primary_color, secondary_color
+     FROM institution_settings WHERE id = 1`
+  ) ?? {
+    institution_name: "INSTITUTO DE FORMACIÓN PROFESIONAL S.C.",
+    logo_path: "/assets/campus-frontera.jpg",
+    director_name: "JIMENEZ MENDEZ BELISARIO",
+    footer_text: "Documento emitido por Control Escolar.",
+    primary_color: "#17324D",
+    secondary_color: "#0F766E"
+  };
+}
+
 function normalizedPaymentBody(body: any) {
   const folio = cleanText(body.folio, 80).toUpperCase();
   const amount = asNumber(body.amount, "Monto");
@@ -369,38 +388,6 @@ function reportRows(month: string, groupId?: number) {
      ORDER BY sp.paid_at, sp.folio`,
     ...params
   );
-}
-
-function drawStatementPdf(res: any, accountData: ReturnType<typeof fullAccount>) {
-  const doc = createPdf(res, `estado-de-cuenta-${accountData.student.student_number}.pdf`);
-  const { student, progress, billing } = accountData;
-  doc.fillColor("#102a43").font("Helvetica-Bold").fontSize(19).text("Estado de cuenta");
-  doc.moveDown(0.25).fillColor("#627d98").font("Helvetica").fontSize(9)
-    .text(`Alumno: ${student.student_name}  |  Matricula: ${student.student_number}`)
-    .text(`Programa: ${student.program_name}  |  Grupo: ${student.group_name}  |  Plan: ${student.plan_name ?? "Sin plan"}`);
-  doc.moveDown();
-  pdfTable(doc, ["Colegiatura", "Esperado", "Pagado", "Adeudo", "Avance"], [[
-    money(billing.summary.tuitionAmount),
-    money(billing.summary.expectedAmount),
-    money(billing.summary.paidAmount),
-    money(billing.summary.balance),
-    `${progress.percentage}%`
-  ]], [95, 105, 105, 105, 90]);
-  doc.moveDown();
-  doc.fillColor("#102a43").font("Helvetica-Bold").fontSize(12).text("Pagos registrados");
-  doc.moveDown(0.4);
-  pdfTable(doc, ["Folio", "Fecha", "Concepto", "Metodo", "Monto"], billing.payments.map((payment) => [
-    payment.folio, payment.paid_at, payment.concept, payment.payment_method ?? "-", money(payment.amount)
-  ]), [90, 78, 155, 92, 88]);
-  doc.moveDown();
-  doc.fillColor("#102a43").font("Helvetica-Bold").fontSize(12).text("Colegiaturas esperadas");
-  doc.moveDown(0.4);
-  pdfTable(doc, ["Periodo", "Vence", "Esperado", "Pagado", "Pendiente", "Estatus"], billing.schedule.map((item) => [
-    item.period, item.dueDate ?? "-", money(item.expectedAmount), money(item.paidAmount), money(item.pendingAmount),
-    item.status === "paid" ? "Pagado" : item.status === "waived" ? "Condonado" : item.status === "not_due" ? "Por vencer" : "Pendiente"
-  ]), [55, 82, 92, 92, 92, 90]);
-  doc.fontSize(7).fillColor("#627d98").text(`Generado: ${new Date().toLocaleString("es-MX")}`, 42, 747, { width: 528, align: "center" });
-  doc.end();
 }
 
 paymentsRouter.get("/students", requirePermission("payments.view"), (req, res) => {
@@ -823,19 +810,13 @@ paymentsRouter.get("/student/:id", requirePermission("payments.view"), (req, res
   res.json(fullAccount(asId(req.params.id, "Alumno")));
 });
 
-paymentsRouter.get("/student/:id/statement", requirePermission("payments.export"), (req, res) => {
+paymentsRouter.get("/student/:id/statement", requirePermission("payments.export"), async (req, res) => {
   const data = fullAccount(asId(req.params.id, "Alumno"));
-  const format = cleanText(req.query.format || "pdf", 10);
-  if (format === "xlsx") {
-    return sendWorkbook(res, `estado-de-cuenta-${data.student.student_number}.xlsx`, "Estado de cuenta", data.billing.payments.map((payment) => ({
-      Folio: payment.folio,
-      Fecha: payment.paid_at,
-      Concepto: payment.concept,
-      Metodo: payment.payment_method ?? "",
-      Monto: payment.amount
-    })));
-  }
-  return drawStatementPdf(res, data);
+  const format = cleanText(req.query.format || "pdf", 10).toLowerCase();
+  const settings = statementSettings();
+  if (format === "xlsx") return sendAccountStatementWorkbook(res, data, settings);
+  if (format !== "pdf") throw new ApiError(400, "El formato del estado de cuenta debe ser PDF o XLSX.");
+  return sendAccountStatementPdf(res, data, settings);
 });
 
 paymentsRouter.get("/report", requirePermission("payments.export"), (req, res) => {

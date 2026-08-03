@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import request from "supertest";
+import ExcelJS from "exceljs";
 import * as XLSX from "xlsx";
 
 const testDb = path.resolve("data/test-school.db");
@@ -16,6 +17,13 @@ const { app } = await import("./app.js");
 const { db } = await import("./db.js");
 
 let token = "";
+
+function binaryParser(response: any, callback: (error: Error | null, body: Buffer) => void) {
+  const chunks: Buffer[] = [];
+  response.on("data", (chunk: Buffer | string) => chunks.push(Buffer.from(chunk)));
+  response.on("end", () => callback(null, Buffer.concat(chunks)));
+  response.on("error", (error: Error) => callback(error, Buffer.alloc(0)));
+}
 
 beforeAll(async () => {
   const response = await request(app)
@@ -217,6 +225,24 @@ describe("Aula Nova API", () => {
     expect(updated.status).toBe(200);
     expect(updated.body.billing.summary.paidAmount).toBe(1500);
 
+    const additionalPaymentIds: number[] = [];
+    for (let index = 1; index <= 12; index += 1) {
+      const folio = `FOL-PAY-${String(index + 1).padStart(3, "0")}`;
+      const additional = await request(app)
+        .post("/api/payments")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          studentId,
+          folio,
+          amount: 100 + index,
+          paidAt: `2026-08-${String(index).padStart(2, "0")}`,
+          paymentMethod: "Transferencia",
+          concept: "Pago complementario"
+        });
+      expect(additional.status).toBe(201);
+      additionalPaymentIds.push(additional.body.billing.payments.find((payment: any) => payment.folio === folio).id);
+    }
+
     const report = await request(app)
       .get("/api/payments/report?month=2026-09&format=pdf")
       .set("Authorization", `Bearer ${token}`);
@@ -225,14 +251,55 @@ describe("Aula Nova API", () => {
 
     const statement = await request(app)
       .get(`/api/payments/student/${studentId}/statement?format=xlsx`)
-      .set("Authorization", `Bearer ${token}`);
+      .set("Authorization", `Bearer ${token}`)
+      .buffer(true)
+      .parse(binaryParser);
     expect(statement.status).toBe(200);
     expect(statement.headers["content-type"]).toContain("spreadsheetml");
+    expect(statement.body.length).toBeGreaterThan(10_000);
+    const statementWorkbook = XLSX.read(statement.body, { type: "buffer", cellDates: true });
+    expect(statementWorkbook.SheetNames).toEqual(expect.arrayContaining(["Estado de Cuenta", "Movimientos"]));
+    const statementSheet = statementWorkbook.Sheets["Estado de Cuenta"];
+    expect(statementSheet.A5.v).toBe("ESTADO DE CUENTA DEL ALUMNO");
+    expect(statementSheet.C8.v).toContain("Sof");
+    expect(statementSheet.E16.v).toBe(1500);
+    expect(statementSheet.H16.v).toBe("PAGADO");
+    expect(statementSheet.A34.v).toContain("Frontera, Centla, Tab.");
+    expect(statementSheet.A35.v).toContain("CÓDIGO DE VERIFICACIÓN SHA-256: EC-");
+    expect(statementSheet["!merges"]?.length).toBeGreaterThan(10);
+    expect(statementSheet.A41.v).toBe("ESTADO DE CUENTA DEL ALUMNO");
+    expect(statementSheet.E52.v).toBe(101);
+    expect(statementSheet.H52.v).toBe("PAGADO");
+
+    const paginationWorkbook = new ExcelJS.Workbook();
+    await paginationWorkbook.xlsx.load(statement.body);
+    const printableSheet = paginationWorkbook.getWorksheet("Estado de Cuenta");
+    expect(printableSheet?.pageSetup.printArea).toBe("A1:H72");
+    expect(printableSheet?.getCell("A71").value).toContain("CÓDIGO DE VERIFICACIÓN SHA-256: EC-");
+
+    const statementPdf = await request(app)
+      .get(`/api/payments/student/${studentId}/statement?format=pdf`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(statementPdf.status).toBe(200);
+    expect(statementPdf.headers["content-type"]).toContain("application/pdf");
+    expect(statementPdf.body.length).toBeGreaterThan(3_000);
+    expect(statementPdf.body.toString("latin1").match(/\/Type\s*\/Page\b/g)).toHaveLength(2);
+
+    await request(app)
+      .get(`/api/payments/student/${studentId}/statement?format=txt`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(400);
 
     await request(app)
       .delete(`/api/payments/${paymentId}`)
       .set("Authorization", `Bearer ${token}`)
       .expect(204);
+    for (const additionalPaymentId of additionalPaymentIds) {
+      await request(app)
+        .delete(`/api/payments/${additionalPaymentId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .expect(204);
+    }
     const afterDelete = await request(app)
       .get(`/api/payments/student/${studentId}`)
       .set("Authorization", `Bearer ${token}`);

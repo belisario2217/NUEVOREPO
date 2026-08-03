@@ -254,7 +254,8 @@ export function PaymentsPage() {
           <section className="payment-account-header">
             <div><span>{account.student.program_name} | {account.student.cycle_name}</span><h2>{account.student.student_name}</h2><p>{account.student.student_number} | Grupo {account.student.group_name} | {account.student.plan_name ?? "Sin plan academico"} | Inicio cobro {account.student.billingStartDate ?? "Sin fecha"}</p></div>
             <div className="payment-account-actions">
-              <Button type="button" variant="secondary" icon={<Download size={17} />} onClick={() => openDocument(`/payments/student/${account.student.studentId}/statement?format=pdf`)}>Estado de cuenta</Button>
+              {can("payments.export") && <Button type="button" variant="secondary" icon={<Download size={17} />} onClick={() => openDocument(`/payments/student/${account.student.studentId}/statement?format=pdf`)}>PDF carta</Button>}
+              {can("payments.export") && <Button type="button" variant="secondary" icon={<FileSpreadsheet size={17} />} onClick={() => download(`/payments/student/${account.student.studentId}/statement?format=xlsx`, `estado-de-cuenta-${account.student.student_number}.xlsx`)}>Excel</Button>}
               {can("payments.manage") && <Button type="button" icon={<Plus size={17} />} onClick={openCreate}>Nuevo pago</Button>}
             </div>
           </section>
