@@ -192,7 +192,7 @@ export function PaymentsPage() {
   }
 
   async function deletePayment(payment: Payment) {
-    if (!account || !window.confirm(`Eliminar el pago ${payment.folio}?`)) return;
+    if (!account || !window.confirm(`Eliminar el pago con folio físico ${payment.notes || "sin capturar"}?`)) return;
     setBusy(true);
     try {
       await api(`/payments/${payment.id}`, { method: "DELETE" });
@@ -269,9 +269,9 @@ export function PaymentsPage() {
 
           <section className="table-section">
             <header className="section-heading"><div><span>Pagos</span><h2>Historial de cobros</h2></div></header>
-            <div className="table-wrap"><table><thead><tr><th>Folio</th><th>Fecha</th><th>Concepto</th><th>Metodo</th><th>Monto</th><th></th></tr></thead><tbody>
+            <div className="table-wrap"><table><thead><tr><th>Folio físico</th><th>Fecha</th><th>Concepto</th><th>Metodo</th><th>Monto</th><th></th></tr></thead><tbody>
               {account.billing.payments.map((payment) => <tr key={payment.id}>
-                <td><strong className="table-main">{payment.folio}</strong>{payment.notes && <span className="table-sub">{payment.notes}</span>}</td>
+                <td><strong className="table-main">{payment.notes || "Sin folio físico"}</strong></td>
                 <td>{payment.paid_at}</td>
                 <td>{payment.concept}</td>
                 <td>{payment.payment_method || <span className="muted-cell">Sin metodo</span>}</td>
@@ -290,14 +290,13 @@ export function PaymentsPage() {
       <Modal open={open} onClose={() => setOpen(false)} title={editing ? "Editar pago" : "Nuevo pago"} size="small">
         <form onSubmit={savePayment}>
           <div className="form-grid two">
-            <Field label="Folio" required><input value={form.folio} onChange={(event) => setForm({ ...form, folio: event.target.value })} required /></Field>
             <Field label="Fecha" required><input type="date" value={form.paidAt} onChange={(event) => setForm({ ...form, paidAt: event.target.value })} required /></Field>
             <Field label="Monto" required><input type="number" min="0.01" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></Field>
             <Field label="Metodo"><input value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value })} /></Field>
             <Field label="Mes colegiatura"><input type="month" value={form.coveredMonth} onChange={(event) => setForm({ ...form, coveredMonth: event.target.value || month })} /></Field>
           </div>
           <Field label="Concepto" required><input value={form.concept} onChange={(event) => setForm({ ...form, concept: event.target.value })} required /></Field>
-          <Field label="Notas"><textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>
+          <Field label="NÚMERO DE FOLIO FÍSICO" required><input inputMode="numeric" maxLength={4} pattern="0(?:00[1-9]|0[1-9][0-9]|[1-4][0-9]{2}|500)" placeholder="0001" title="Ingresa un número del 0001 al 0500." value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value.replace(/\D/g, "").slice(0, 4) })} required /></Field>
           <div className="modal-actions"><Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button><Button type="submit" busy={busy}>{editing ? "Guardar cambios" : "Registrar pago"}</Button></div>
         </form>
       </Modal>

@@ -28,6 +28,7 @@ type StatementPayment = {
   paid_at: string;
   payment_method: string | null;
   concept: string;
+  covered_month: string | null;
   notes: string | null;
   updated_at: string;
 };
@@ -101,6 +102,13 @@ function dateValue(value: string | null | undefined) {
   if (!value) return null;
   const parsed = new Date(`${value.slice(0, 10)}T00:00:00`);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function physicalFolio(value: string | null | undefined) {
+  const text = value?.trim() ?? "";
+  if (!/^\d{1,4}$/.test(text)) return "SIN FOLIO FÍSICO";
+  const number = Number(text);
+  return number >= 1 && number <= 500 ? String(number).padStart(4, "0") : "SIN FOLIO FÍSICO";
 }
 
 function verificationCode(data: StatementAccountData, issued: IssuedParts) {
@@ -273,7 +281,7 @@ function drawPdfMovements(
   for (let row = 0; row < rowsPerPdfPage; row += 1) {
     const payment = payments[row];
     const values = payment
-      ? [displayDate(payment.paid_at), payment.concept, money(payment.amount), payment.folio, "PAGADO"]
+      ? [displayDate(payment.paid_at), payment.concept, money(payment.amount), physicalFolio(payment.notes), "PAGADO"]
       : ["", "", "", "", ""];
     x = 36;
     const y = 338 + row * 21;
@@ -555,7 +563,7 @@ function buildStatementCover(
       worksheet.getCell(row, 1).value = payment ? dateValue(payment.paid_at) : null;
       worksheet.getCell(row, 2).value = payment?.concept ?? "";
       worksheet.getCell(row, 5).value = payment ? Number(payment.amount) : null;
-      worksheet.getCell(row, 6).value = payment?.folio ?? "";
+      worksheet.getCell(row, 6).value = payment ? physicalFolio(payment.notes) : "";
       worksheet.getCell(row, 8).value = payment ? "PAGADO" : "";
       styleRange(worksheet, row, 1, row, 8, {
         fill: { type: "pattern", pattern: "solid", fgColor: { argb: index % 2 === 0 ? "FFFFFFFF" : "FFF8FAFC" } },
@@ -649,7 +657,7 @@ function buildMovementsSheet(
     font: { name: "Consolas", size: 8, color: { argb: "FF64748B" } },
     alignment: { horizontal: "left", vertical: "middle" }
   });
-  const headers = ["FECHA", "MATRÍCULA", "CONCEPTO", "MONTO", "FOLIO", "ESTADO", "MÉTODO", "OBSERVACIONES"];
+  const headers = ["FECHA", "MATRÍCULA", "CONCEPTO", "MONTO", "FOLIO FÍSICO", "ESTADO", "MÉTODO", "MES CUBIERTO"];
   worksheet.getRow(4).values = headers;
   styleRange(worksheet, 4, 1, 4, 8, {
     fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F766E" } },
@@ -665,10 +673,10 @@ function buildMovementsSheet(
       data.student.student_number,
       payment.concept,
       Number(payment.amount),
-      payment.folio,
+      physicalFolio(payment.notes),
       "PAGADO",
       payment.payment_method ?? "",
-      payment.notes ?? ""
+      payment.covered_month ?? ""
     ];
     styleRange(worksheet, row, 1, row, 8, {
       fill: { type: "pattern", pattern: "solid", fgColor: { argb: index % 2 === 0 ? "FFFFFFFF" : "FFF8FAFC" } },

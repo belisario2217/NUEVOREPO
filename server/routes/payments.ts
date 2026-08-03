@@ -307,6 +307,18 @@ function statementSettings() {
   };
 }
 
+function normalizedPhysicalFolio(value: unknown) {
+  const text = cleanText(value, 20);
+  if (!/^\d{1,4}$/.test(text)) {
+    throw new ApiError(400, "El número de folio físico debe contener únicamente dígitos del 0001 al 0500.");
+  }
+  const number = Number(text);
+  if (number < 1 || number > 500) {
+    throw new ApiError(400, "El número de folio físico debe estar entre 0001 y 0500.");
+  }
+  return String(number).padStart(4, "0");
+}
+
 function normalizedPaymentBody(body: any) {
   const folio = cleanText(body.folio, 80).toUpperCase();
   const amount = asNumber(body.amount, "Monto");
@@ -322,7 +334,7 @@ function normalizedPaymentBody(body: any) {
     concept,
     conceptType,
     coveredMonth: conceptType === "tuition" ? validCoveredMonth(body.coveredMonth) : null,
-    notes: optionalText(body.notes, 800)
+    notes: normalizedPhysicalFolio(body.notes)
   };
 }
 
@@ -374,7 +386,7 @@ function reportRows(month: string, groupId?: number) {
     params.push(groupId);
   }
   return all<any>(
-    `SELECT sp.folio, sp.paid_at, sp.amount, sp.payment_method, sp.concept,
+    `SELECT COALESCE(sp.notes, '') AS folio, sp.paid_at, sp.amount, sp.payment_method, sp.concept,
      st.student_number,
      TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) AS student_name,
      p.name AS program_name, g.name AS group_name, ap.name AS plan_name
@@ -418,22 +430,20 @@ paymentsRouter.get("/students", requirePermission("payments.view"), (req, res) =
 paymentsRouter.get("/template/import.xlsx", requirePermission("payments.manage"), (_req, res) => {
   sendWorkbook(res, "plantilla-pagos.xlsx", "Pagos", [{
     Matricula: "0825AMRLEESC",
-    Folio: "PAGO-0001",
+    "Numero de folio fisico": "0001",
     Fecha: "2026-07-08",
     "Mes colegiatura": "2026-07",
     Monto: 1500,
     Metodo: "Transferencia",
-    Concepto: "Colegiatura",
-    Observaciones: ""
+    Concepto: "Colegiatura"
   }, {
     Matricula: "0825AMRLEESC",
-    Folio: "",
+    "Numero de folio fisico": "0002",
     Fecha: "2026-08-08",
     "Mes colegiatura": "2026-08",
     Monto: 1500,
     Metodo: "Efectivo",
-    Concepto: "Colegiatura",
-    Observaciones: "Folio vacio: el sistema genera uno automaticamente"
+    Concepto: "Colegiatura"
   }]);
 });
 
@@ -447,11 +457,18 @@ paymentsRouter.post("/import/preview", requirePermission("payments.manage"), upl
   rows.forEach((source, index) => {
     const rowNumber = index + 2;
     const studentNumber = value(source, "Matricula", "MatrÃ­cula");
-    const originalFolio = value(source, "Folio", "Recibo", "Referencia").toUpperCase();
+    const physicalFolioInput = value(source, "Numero de folio fisico", "Número de folio físico", "Folio fisico", "Folio", "Recibo", "Referencia");
     const paidAtInput = value(source, "Fecha de pago", "Fecha");
     const amountInput = value(source, "Monto", "Importe");
-    if (!studentNumber || !paidAtInput || amountInput === "") {
-      errors.push({ row: rowNumber, message: "Faltan matricula, fecha o monto." });
+    if (!studentNumber || !physicalFolioInput || !paidAtInput || amountInput === "") {
+      errors.push({ row: rowNumber, message: "Faltan matrícula, número de folio físico, fecha o monto." });
+      return;
+    }
+    let originalFolio = "";
+    try {
+      originalFolio = normalizedPhysicalFolio(physicalFolioInput);
+    } catch {
+      errors.push({ row: rowNumber, message: "El número de folio físico debe estar entre 0001 y 0500." });
       return;
     }
     const amount = parseAmount(amountInput);
@@ -497,7 +514,7 @@ paymentsRouter.post("/import/preview", requirePermission("payments.manage"), upl
     const concept = cleanText(value(source, "Concepto") || "Colegiatura", 120) || "Colegiatura";
     const conceptType = conceptTypeFromText(concept);
     const coveredMonth = conceptType === "tuition" ? validCoveredMonth(value(source, "Mes", "Mes colegiatura", "Colegiatura mes")) : null;
-    const notes = optionalText(value(source, "Notas", "Observaciones"), 800) ?? optionalText(originalFolio, 80);
+    const notes = originalFolio;
     const draft: PaymentImportRow = {
       row: rowNumber,
       studentId: account.studentId,

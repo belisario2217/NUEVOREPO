@@ -84,6 +84,7 @@ materias, docentes, criterios, escalas y estatus no están fijados en la interfa
 - Bloqueo de captura e historial de cada modificación.
 - Exportación de alumnos y calificaciones a XLSX, CSV y PDF.
 - Estados de cuenta individuales en PDF carta y Excel, con identidad institucional, total pagado y código de verificación.
+- Folio físico de cobro del 0001 al 0500, independiente del identificador interno generado por el sistema.
 - Boletas individuales y masivas en PDF.
 - Reportes de asistencia, concentrado, materias, docentes, reprobados y destacados.
 - Analíticas por grupo, programa, turno, materia, periodo y docente.

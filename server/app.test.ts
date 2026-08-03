@@ -195,6 +195,20 @@ describe("Aula Nova API", () => {
     expect(account.body.billing.summary.totalInstallments).toBe(36);
     expect(account.body.billing.schedule[0].dueDate).toBe("2026-09-10");
 
+    await request(app)
+      .post("/api/payments")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        studentId,
+        folio: "FOL-PAY-INVALID",
+        amount: 100,
+        paidAt: "2026-09-03",
+        paymentMethod: "Efectivo",
+        concept: "Colegiatura",
+        notes: "0501"
+      })
+      .expect(400);
+
     const created = await request(app)
       .post("/api/payments")
       .set("Authorization", `Bearer ${token}`)
@@ -204,12 +218,15 @@ describe("Aula Nova API", () => {
         amount: 1200,
         paidAt: "2026-09-03",
         paymentMethod: "Efectivo",
-        concept: "Colegiatura"
+        concept: "Colegiatura",
+        notes: "0042"
       });
     expect(created.status).toBe(201);
     expect(created.body.billing.summary.paidAmount).toBe(1200);
     expect(created.body.billing.summary.balance).toBe(0);
-    const paymentId = created.body.billing.payments.find((payment: any) => payment.folio === "FOL-PAY-001").id;
+    const createdPayment = created.body.billing.payments.find((payment: any) => payment.folio === "FOL-PAY-001");
+    expect(createdPayment.notes).toBe("0042");
+    const paymentId = createdPayment.id;
 
     const updated = await request(app)
       .patch(`/api/payments/${paymentId}`)
@@ -220,7 +237,8 @@ describe("Aula Nova API", () => {
         amount: 1500,
         paidAt: "2026-09-03",
         paymentMethod: "Transferencia",
-        concept: "Colegiatura"
+        concept: "Colegiatura",
+        notes: "0042"
       });
     expect(updated.status).toBe(200);
     expect(updated.body.billing.summary.paidAmount).toBe(1500);
@@ -237,7 +255,8 @@ describe("Aula Nova API", () => {
           amount: 100 + index,
           paidAt: `2026-08-${String(index).padStart(2, "0")}`,
           paymentMethod: "Transferencia",
-          concept: "Pago complementario"
+          concept: "Pago complementario",
+          notes: String(index + 42).padStart(4, "0")
         });
       expect(additional.status).toBe(201);
       additionalPaymentIds.push(additional.body.billing.payments.find((payment: any) => payment.folio === folio).id);
@@ -265,15 +284,22 @@ describe("Aula Nova API", () => {
     expect(statementSheet.A13.v).toBe("TOTAL PAGADO");
     expect(statementSheet.E13.v).toBe(2778);
     expect(statementSheet.E16.v).toBe(1500);
+    expect(statementSheet.F16.v).toBe("0042");
     expect(statementSheet.H16.v).toBe("PAGADO");
     expect(statementSheet.A34.v).toContain("Frontera, Centla, Tab.");
     expect(statementSheet.A35.v).toContain("CÓDIGO DE VERIFICACIÓN SHA-256: EC-");
     expect(statementSheet["!merges"]?.length).toBeGreaterThan(10);
     expect(statementSheet.A41.v).toBe("ESTADO DE CUENTA DEL ALUMNO");
     expect(statementSheet.E52.v).toBe(101);
+    expect(statementSheet.F52.v).toBe("0043");
     expect(statementSheet.H52.v).toBe("PAGADO");
-    expect(XLSX.utils.sheet_to_csv(statementSheet)).not.toContain("SALDO PENDIENTE");
-    expect(XLSX.utils.sheet_to_csv(statementWorkbook.Sheets["Movimientos"])).not.toContain("SALDO PENDIENTE");
+    const statementCsv = XLSX.utils.sheet_to_csv(statementSheet);
+    const movementsCsv = XLSX.utils.sheet_to_csv(statementWorkbook.Sheets["Movimientos"]);
+    expect(statementCsv).not.toContain("SALDO PENDIENTE");
+    expect(statementCsv).not.toContain("FOL-PAY-001");
+    expect(movementsCsv).not.toContain("SALDO PENDIENTE");
+    expect(movementsCsv).not.toContain("FOL-PAY-001");
+    expect(movementsCsv).toContain("FOLIO FÍSICO");
 
     const paginationWorkbook = new ExcelJS.Workbook();
     await paginationWorkbook.xlsx.load(statement.body);

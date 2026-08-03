@@ -64,6 +64,10 @@ historial completo de movimientos. Cuando existen más de 12 pagos, tanto el PDF
 pestaña **Estado de Cuenta** del Excel agregan automáticamente las hojas carta necesarias;
 cada hoja repite encabezado, datos del alumno, totales, firma y código de verificación.
 
+Al registrar o editar un pago, captura el **NÚMERO DE FOLIO FÍSICO** impreso en el recibo,
+usando cuatro dígitos del **0001 al 0500**. El sistema conserva por separado su identificador
+interno; los estados de cuenta muestran únicamente el folio físico.
+
 Ambos documentos toman automáticamente la matrícula, nombre, programa, turno, periodo,
 ciclo, pagos y total pagado. También incorporan el logo y responsable definidos en
 **Configuración**, la fecha y hora de emisión, el lugar **Frontera, Centla, Tab.** y un

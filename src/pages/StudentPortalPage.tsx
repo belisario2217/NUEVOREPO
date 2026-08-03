@@ -41,6 +41,7 @@ type PortalData = {
       paid_at: string;
       payment_method: string | null;
       concept: string;
+      notes: string | null;
     }>;
   };
   subjects: Array<{
@@ -125,12 +126,12 @@ export function StudentPortalPage() {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Folio</th><th>Fecha</th><th>Concepto</th><th>Metodo</th><th>Monto</th></tr>
+              <tr><th>Folio físico</th><th>Fecha</th><th>Concepto</th><th>Metodo</th><th>Monto</th></tr>
             </thead>
             <tbody>
               {billing.payments.map((payment) => (
                 <tr key={payment.id}>
-                  <td><strong className="table-main">{payment.folio}</strong></td>
+                  <td><strong className="table-main">{payment.notes || "Sin folio físico"}</strong></td>
                   <td>{payment.paid_at}</td>
                   <td>{payment.concept}</td>
                   <td>{payment.payment_method ?? <span className="muted-cell">Sin metodo</span>}</td>
