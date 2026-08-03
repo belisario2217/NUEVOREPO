@@ -65,7 +65,7 @@ pestaña **Estado de Cuenta** del Excel agregan automáticamente las hojas carta
 cada hoja repite encabezado, datos del alumno, totales, firma y código de verificación.
 
 Ambos documentos toman automáticamente la matrícula, nombre, programa, turno, periodo,
-ciclo, pagos y adeudo. También incorporan el logo y responsable definidos en
+ciclo, pagos y total pagado. También incorporan el logo y responsable definidos en
 **Configuración**, la fecha y hora de emisión, el lugar **Frontera, Centla, Tab.** y un
 código de verificación SHA-256.
 

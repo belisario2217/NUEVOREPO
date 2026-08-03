@@ -242,12 +242,8 @@ function drawPdfHeader(
   value(416, infoY + rowHeight * 4, 160, "FRONTERA");
 
   pdfCell(doc, {
-    x: 36, y: 270, width: 270, height: 32, text: `TOTAL REGISTRADO  ${money(data.billing.summary.paidAmount)}`,
+    x: 36, y: 270, width: 540, height: 32, text: `TOTAL PAGADO  ${money(data.billing.summary.paidAmount)}`,
     fill: "#DCFCE7", color: "#166534", border: primary, bold: true, align: "center", fontSize: 9
-  });
-  pdfCell(doc, {
-    x: 306, y: 270, width: 270, height: 32, text: `SALDO PENDIENTE  ${money(data.billing.summary.balance)}`,
-    fill: "#FEF3C7", color: "#92400E", border: primary, bold: true, align: "center", fontSize: 9
   });
 }
 
@@ -299,22 +295,13 @@ function drawPdfMovements(
   }
 
   pdfCell(doc, {
-    x: 36, y: 590, width: 430, height: 22, text: "TOTAL REGISTRADO", fill: "#F8FAFC",
+    x: 36, y: 590, width: 430, height: 22, text: "TOTAL PAGADO", fill: "#F8FAFC",
     color: primary, bold: true, align: "right", fontSize: 8
   });
   pdfCell(doc, {
     x: 466, y: 590, width: 110, height: 22, text: money(data.billing.summary.paidAmount), fill: "#F8FAFC",
     color: primary, bold: true, align: "right", fontSize: 8
   });
-  pdfCell(doc, {
-    x: 36, y: 612, width: 430, height: 22, text: "SALDO PENDIENTE", fill: "#F8FAFC",
-    color: primary, bold: true, align: "right", fontSize: 8
-  });
-  pdfCell(doc, {
-    x: 466, y: 612, width: 110, height: 22, text: money(data.billing.summary.balance), fill: "#F8FAFC",
-    color: primary, bold: true, align: "right", fontSize: 8
-  });
-
   doc.moveTo(198, 660).lineTo(414, 660).strokeColor("#334155").lineWidth(0.7).stroke();
   doc.fillColor("#334155").font("Helvetica").fontSize(8).text(settings.director_name || "JIMENEZ MENDEZ BELISARIO", 166, 668, {
     width: 280,
@@ -527,24 +514,15 @@ function buildStatementCover(
     setInfo(["A", "B"], "AÑO", ["C", "D"], 11, issued.year, true);
     setInfo(["E", "F"], "CAMPUS", ["G", "H"], 11, "FRONTERA");
 
-    mergedValue(worksheet, rangeAt("A", "B", 13), "TOTAL REGISTRADO");
-    mergedValue(worksheet, rangeAt("C", "D", 13), Number(data.billing.summary.paidAmount));
-    mergedValue(worksheet, rangeAt("E", "F", 13), "SALDO PENDIENTE");
-    mergedValue(worksheet, rangeAt("G", "H", 13), Number(data.billing.summary.balance));
-    styleRange(worksheet, rowAt(13), 1, rowAt(13), 4, {
+    mergedValue(worksheet, rangeAt("A", "D", 13), "TOTAL PAGADO");
+    mergedValue(worksheet, rangeAt("E", "H", 13), Number(data.billing.summary.paidAmount));
+    styleRange(worksheet, rowAt(13), 1, rowAt(13), 8, {
       fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFDCFCE7" } },
       font: { name: "Aptos", bold: true, size: 10, color: { argb: "FF166534" } },
       alignment: { horizontal: "center", vertical: "middle" },
       border: thinBorder(primaryArgb)
     });
-    styleRange(worksheet, rowAt(13), 5, rowAt(13), 8, {
-      fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF3C7" } },
-      font: { name: "Aptos", bold: true, size: 10, color: { argb: "FF92400E" } },
-      alignment: { horizontal: "center", vertical: "middle" },
-      border: thinBorder(primaryArgb)
-    });
-    worksheet.getCell(rowAt(13), 3).numFmt = '"$"#,##0.00';
-    worksheet.getCell(rowAt(13), 7).numFmt = '"$"#,##0.00';
+    worksheet.getCell(rowAt(13), 5).numFmt = '"$"#,##0.00';
 
     const firstMovement = pageIndex * rowsOnWorkbookCover + 1;
     const lastMovement = Math.min(data.billing.payments.length, firstMovement + rowsOnWorkbookCover - 1);
@@ -594,18 +572,15 @@ function buildStatementCover(
       worksheet.getCell(row, 8).font = { name: "Aptos", size: 8, bold: Boolean(payment), color: { argb: "FF166534" } };
     }
 
-    mergedValue(worksheet, rangeAt("A", "F", 28), "TOTAL REGISTRADO");
+    mergedValue(worksheet, rangeAt("A", "F", 28), "TOTAL PAGADO");
     mergedValue(worksheet, rangeAt("G", "H", 28), Number(data.billing.summary.paidAmount));
-    mergedValue(worksheet, rangeAt("A", "F", 29), "SALDO PENDIENTE");
-    mergedValue(worksheet, rangeAt("G", "H", 29), Number(data.billing.summary.balance));
-    styleRange(worksheet, rowAt(28), 1, rowAt(29), 8, {
+    styleRange(worksheet, rowAt(28), 1, rowAt(28), 8, {
       fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } },
       font: { name: "Aptos", bold: true, size: 9, color: { argb: primaryArgb } },
       alignment: { horizontal: "right", vertical: "middle" },
       border
     });
     worksheet.getCell(rowAt(28), 7).numFmt = '"$"#,##0.00';
-    worksheet.getCell(rowAt(29), 7).numFmt = '"$"#,##0.00';
 
     worksheet.mergeCells(rangeAt("C", "F", 31));
     styleRange(worksheet, rowAt(31), 3, rowAt(31), 6, { border: { bottom: { style: "thin", color: { argb: "FF334155" } } } });
@@ -709,28 +684,16 @@ function buildMovementsSheet(
   });
   worksheet.autoFilter = { from: "A4", to: `H${endRow}` };
   const summaryRow = endRow + 2;
-  mergedValue(worksheet, `A${summaryRow}:C${summaryRow}`, "TOTAL REGISTRADO", {
+  mergedValue(worksheet, `A${summaryRow}:G${summaryRow}`, "TOTAL PAGADO", {
     fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFDCFCE7" } },
     font: { name: "Aptos", bold: true, size: 10, color: { argb: "FF166534" } },
     alignment: { horizontal: "right", vertical: "middle" },
     border: thinBorder()
   });
-  worksheet.getCell(summaryRow, 4).value = Number(data.billing.summary.paidAmount);
-  worksheet.getCell(summaryRow, 4).numFmt = '"$"#,##0.00';
-  worksheet.getCell(summaryRow, 4).font = { name: "Aptos", bold: true, size: 10, color: { argb: "FF166534" } };
-  worksheet.getCell(summaryRow, 4).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDCFCE7" } };
-  worksheet.getCell(summaryRow, 4).border = thinBorder();
-  worksheet.getCell(summaryRow, 4).alignment = { horizontal: "right", vertical: "middle" };
-  mergedValue(worksheet, `E${summaryRow}:G${summaryRow}`, "SALDO PENDIENTE", {
-    fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF3C7" } },
-    font: { name: "Aptos", bold: true, size: 10, color: { argb: "FF92400E" } },
-    alignment: { horizontal: "right", vertical: "middle" },
-    border: thinBorder()
-  });
-  worksheet.getCell(summaryRow, 8).value = Number(data.billing.summary.balance);
+  worksheet.getCell(summaryRow, 8).value = Number(data.billing.summary.paidAmount);
   worksheet.getCell(summaryRow, 8).numFmt = '"$"#,##0.00';
-  worksheet.getCell(summaryRow, 8).font = { name: "Aptos", bold: true, size: 10, color: { argb: "FF92400E" } };
-  worksheet.getCell(summaryRow, 8).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF3C7" } };
+  worksheet.getCell(summaryRow, 8).font = { name: "Aptos", bold: true, size: 10, color: { argb: "FF166534" } };
+  worksheet.getCell(summaryRow, 8).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDCFCE7" } };
   worksheet.getCell(summaryRow, 8).border = thinBorder();
   worksheet.getCell(summaryRow, 8).alignment = { horizontal: "right", vertical: "middle" };
 }

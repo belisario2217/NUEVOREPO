@@ -262,6 +262,8 @@ describe("Aula Nova API", () => {
     const statementSheet = statementWorkbook.Sheets["Estado de Cuenta"];
     expect(statementSheet.A5.v).toBe("ESTADO DE CUENTA DEL ALUMNO");
     expect(statementSheet.C8.v).toContain("Sof");
+    expect(statementSheet.A13.v).toBe("TOTAL PAGADO");
+    expect(statementSheet.E13.v).toBe(2778);
     expect(statementSheet.E16.v).toBe(1500);
     expect(statementSheet.H16.v).toBe("PAGADO");
     expect(statementSheet.A34.v).toContain("Frontera, Centla, Tab.");
@@ -270,6 +272,8 @@ describe("Aula Nova API", () => {
     expect(statementSheet.A41.v).toBe("ESTADO DE CUENTA DEL ALUMNO");
     expect(statementSheet.E52.v).toBe(101);
     expect(statementSheet.H52.v).toBe("PAGADO");
+    expect(XLSX.utils.sheet_to_csv(statementSheet)).not.toContain("SALDO PENDIENTE");
+    expect(XLSX.utils.sheet_to_csv(statementWorkbook.Sheets["Movimientos"])).not.toContain("SALDO PENDIENTE");
 
     const paginationWorkbook = new ExcelJS.Workbook();
     await paginationWorkbook.xlsx.load(statement.body);
