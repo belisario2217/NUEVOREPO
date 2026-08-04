@@ -95,7 +95,7 @@ const definitions: Record<string, CatalogDefinition> = {
       { name: "name", label: "Nombre", required: true },
       { name: "program_id", label: "Programa", type: "number", reference: "programs", required: true },
       { name: "shift_id", label: "Turno", type: "number", reference: "shifts", required: true },
-      { name: "cycle_id", label: "Ciclo", type: "number", reference: "cycles", required: true },
+      { name: "cycle_id", label: "Ciclo de formación del grupo", type: "number", reference: "cycles", required: true },
       {
         name: "study_modality",
         label: "Modalidad de estudio",

@@ -17,7 +17,6 @@ type IdentityInput = {
 type GroupContext = {
   program_id: number;
   shift_id: number;
-  cycle_id: number;
   study_modality: StudyModality;
 };
 
@@ -91,13 +90,13 @@ function cyclePrefix(startDate: string) {
 
 export function generateStudentIdentity(input: IdentityInput) {
   const group = get<GroupContext>(
-    `SELECT program_id, shift_id, cycle_id, study_modality
+    `SELECT program_id, shift_id, study_modality
      FROM groups WHERE id = ? AND is_active = 1`,
     input.groupId
   );
   if (!group) throw new ApiError(400, "El grupo seleccionado no existe o esta inactivo.");
-  if (group.program_id !== input.programId || group.shift_id !== input.shiftId || group.cycle_id !== input.cycleId) {
-    throw new ApiError(400, "El programa, turno y ciclo deben corresponder al grupo seleccionado.");
+  if (group.program_id !== input.programId || group.shift_id !== input.shiftId) {
+    throw new ApiError(400, "El programa y turno deben corresponder al grupo seleccionado.");
   }
 
   const cycle = get<{ start_date: string }>(

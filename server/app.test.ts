@@ -582,6 +582,35 @@ describe("Aula Nova API", () => {
       .set("Authorization", `Bearer ${token}`);
     expect(filtered.body.pagination.total).toBe(1);
 
+    const independentCycle = await request(app)
+      .post("/api/catalogs/cycles")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "2027B - 2028A", start_date: "2027-08-10", end_date: "2028-07-31" });
+    expect(independentCycle.status).toBe(201);
+    const differentCycleStudent = await request(app)
+      .post("/api/students")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        firstName: "Ana",
+        lastName: "Ciclo",
+        secondLastName: "Libre",
+        statusId: statuses[0].id,
+        programId: targetGroup.program_id,
+        shiftId: targetGroup.shift_id,
+        groupId: targetGroup.id,
+        cycleId: independentCycle.body.id,
+        planId: plan.body.id,
+        curricularPeriodId: targetPeriod.id
+      });
+    expect(differentCycleStudent.status).toBe(201);
+    expect(differentCycleStudent.body.cycle_id).toBe(independentCycle.body.id);
+    expect(differentCycleStudent.body.group_id).toBe(targetGroup.id);
+    expect(differentCycleStudent.body.student_number).toBe("0827CLALEESC");
+    await request(app)
+      .delete(`/api/students/${differentCycleStudent.body.id}/permanent`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(204);
+
     const assignments = await request(app)
       .get(`/api/grades/assignments?groupId=${targetGroup.id}`)
       .set("Authorization", `Bearer ${token}`);

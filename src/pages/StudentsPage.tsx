@@ -222,7 +222,6 @@ export function StudentsPage() {
       groupId,
       programId,
       shiftId: String(group.shift_id ?? form.shiftId),
-      cycleId: String(group.cycle_id ?? form.cycleId),
       planId: planMatches ? form.planId : ""
     });
   }
