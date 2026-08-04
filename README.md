@@ -43,7 +43,7 @@ Acceso inicial:
 
 ```text
 Administrador: admin@aulanova.edu.mx / Admin123!
-Alumno: alumno@campusfrontera.edu.mx / Alumno123!
+Alumno de ejemplo: an26001@alumnoifop.edu / Alumno123!
 ```
 
 Cambie esta contraseña al preparar una instalación real.
@@ -73,13 +73,16 @@ materias, docentes, criterios, escalas y estatus no están fijados en la interfa
 - Eliminación definitiva con confirmación para alumnos, materias, planes y registros sin dependencias.
 - Borrado forzado opcional para eliminar también dependencias académicas relacionadas.
 - Registro, búsqueda, filtros, baja y reactivación de alumnos.
-- Importación de alumnos desde Excel/CSV con vista previa y errores por fila.
+- Matrícula y correo institucional automáticos a partir del ciclo, iniciales, plan académico y modalidad del grupo.
+- Creación y vinculación automática de cuentas en altas manuales, importaciones y alumnos existentes sin acceso.
+- Contraseña temporal `1234` + primer nombre en minúsculas, cambio personal y restablecimiento administrativo.
+- Importación de alumnos desde Excel/CSV con vista previa, cuentas automáticas y errores por fila.
 - Captura manual y ponderada de calificaciones.
 - Captura de tres parciales con promedio y estatus calculados automáticamente.
 - Planes académicos con asignaturas obligatorias u optativas, créditos y periodo sugerido.
 - Edición completa de planes existentes, incluyendo su estructura de asignaturas.
 - Portal del alumno con materias, parciales, promedio y avance curricular por créditos.
-- Vinculación de cuentas con rol Alumno a una matrícula desde Usuarios.
+- Vinculación de cuentas con rol Alumno a su matrícula y correo institucional.
 - Importación de calificaciones con actualización o exclusión de existentes.
 - Bloqueo de captura e historial de cada modificación.
 - Exportación de alumnos y calificaciones a XLSX, CSV y PDF.

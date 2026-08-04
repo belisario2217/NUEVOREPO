@@ -11,6 +11,7 @@ export interface AuthUser {
   roleId: number;
   roleName: string;
   studentId: number | null;
+  passwordMustChange: boolean;
   permissions: string[];
 }
 
@@ -30,8 +31,10 @@ export function loadUser(userId: number): AuthUser | undefined {
     role_id: number;
     role_name: string;
     student_id: number | null;
+    password_must_change: number;
   }>(
-    `SELECT u.id, u.full_name, u.email, u.role_id, r.name AS role_name, u.student_id
+    `SELECT u.id, u.full_name, u.email, u.role_id, r.name AS role_name, u.student_id,
+     u.password_must_change
      FROM users u JOIN roles r ON r.id = u.role_id
      WHERE u.id = ? AND u.is_active = 1 AND r.is_active = 1`,
     userId
@@ -50,6 +53,7 @@ export function loadUser(userId: number): AuthUser | undefined {
     roleId: user.role_id,
     roleName: user.role_name,
     studentId: user.student_id,
+    passwordMustChange: Boolean(user.password_must_change),
     permissions
   };
 }

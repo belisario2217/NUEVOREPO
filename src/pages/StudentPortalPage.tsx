@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
-import { Award, Banknote, BookOpenCheck, CircleGauge, Clock3, GraduationCap, ReceiptText, WalletCards } from "lucide-react";
+import { Award, Banknote, BookOpenCheck, CircleGauge, Clock3, GraduationCap, KeyRound, ReceiptText, WalletCards } from "lucide-react";
 import { api } from "../lib/api";
-import { EmptyState, StatusBadge } from "../components/Ui";
+import { useAuth } from "../lib/auth";
+import { useToast } from "../components/Toast";
+import { Modal } from "../components/Modal";
+import { Button, EmptyState, Field, StatusBadge } from "../components/Ui";
 
 type PortalData = {
   student: {
@@ -67,14 +70,40 @@ function money(value: unknown) {
 }
 
 export function StudentPortalPage() {
+  const { user } = useAuth();
+  const toast = useToast();
   const [data, setData] = useState<PortalData | null>(null);
   const [error, setError] = useState("");
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordUpdated, setPasswordUpdated] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
 
   useEffect(() => {
     api<PortalData>("/portal")
       .then(setData)
       .catch((reason) => setError(reason instanceof Error ? reason.message : "No fue posible cargar tu informacion."));
   }, []);
+
+  async function changePassword(event: React.FormEvent) {
+    event.preventDefault();
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      toast.error("La confirmación de la nueva contraseña no coincide.");
+      return;
+    }
+    setPasswordBusy(true);
+    try {
+      await api("/auth/change-password", { method: "POST", body: passwordForm });
+      toast.success("Tu contraseña fue actualizada correctamente.");
+      setPasswordUpdated(true);
+      setPasswordOpen(false);
+      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "No fue posible cambiar la contraseña.");
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
 
   if (error) return <EmptyState icon={<GraduationCap size={27} />} title="Tu expediente no esta disponible" text={error} />;
   if (!data) return <div className="loading-panel">Cargando avance curricular...</div>;
@@ -94,6 +123,17 @@ export function StudentPortalPage() {
           <strong>{student.plan_name}</strong>
           <small>{student.plan_code}</small>
         </div>
+      </section>
+
+      <section className="toolbar">
+        <div className="toolbar-primary">
+          <KeyRound size={20} />
+          <div>
+            <strong>{user?.passwordMustChange && !passwordUpdated ? "Cambia tu contraseña temporal" : "Seguridad de tu cuenta"}</strong>
+            <span className="table-sub">Usa una contraseña personal de al menos 8 caracteres.</span>
+          </div>
+        </div>
+        <Button variant={user?.passwordMustChange && !passwordUpdated ? "primary" : "secondary"} icon={<KeyRound size={17} />} onClick={() => setPasswordOpen(true)}>Cambiar contraseña</Button>
       </section>
 
       <section className="portal-metrics">
@@ -173,6 +213,17 @@ export function StudentPortalPage() {
         </div>
         {!subjects.length && <EmptyState icon={<Clock3 size={25} />} title="No hay materias en tu plan" text="Control escolar debe asignar un plan academico a tu inscripcion." />}
       </section>
+
+      <Modal open={passwordOpen} onClose={() => setPasswordOpen(false)} title="Cambiar contraseña" size="small">
+        <form onSubmit={changePassword}>
+          <div className="form-grid">
+            <Field label="Contraseña actual" required><input type="password" autoComplete="current-password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm({ ...passwordForm, currentPassword: event.target.value })} required /></Field>
+            <Field label="Nueva contraseña" required hint="Mínimo 8 caracteres."><input type="password" minLength={8} autoComplete="new-password" value={passwordForm.newPassword} onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })} required /></Field>
+            <Field label="Confirmar nueva contraseña" required><input type="password" minLength={8} autoComplete="new-password" value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm({ ...passwordForm, confirmPassword: event.target.value })} required /></Field>
+          </div>
+          <div className="modal-actions"><Button type="button" variant="ghost" onClick={() => setPasswordOpen(false)}>Cancelar</Button><Button type="submit" busy={passwordBusy}>Guardar contraseña</Button></div>
+        </form>
+      </Modal>
     </div>
   );
 }

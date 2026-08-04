@@ -8,6 +8,7 @@ export type User = {
   roleId: number;
   roleName: string;
   studentId: number | null;
+  passwordMustChange: boolean;
   permissions: string[];
 };
 

@@ -52,7 +52,7 @@ describe("Aula Nova API", () => {
   it("provides the student login, academic levels and curricular portal", async () => {
     const login = await request(app)
       .post("/api/auth/login")
-      .send({ email: "alumno@campusfrontera.edu.mx", password: "Alumno123!" });
+      .send({ email: "an26001@alumnoifop.edu", password: "Alumno123!" });
     expect(login.status).toBe(200);
     expect(login.body.user.roleName).toBe("Alumno");
     expect(login.body.user.studentId).toBeTypeOf("number");
@@ -97,7 +97,7 @@ describe("Aula Nova API", () => {
 
     const studentLogin = await request(app)
       .post("/api/auth/login")
-      .send({ email: "alumno@campusfrontera.edu.mx", password: "Alumno123!" });
+      .send({ email: "an26001@alumnoifop.edu", password: "Alumno123!" });
     const ungradedPortal = await request(app)
       .get("/api/portal")
       .set("Authorization", `Bearer ${studentLogin.body.token}`);
@@ -133,6 +133,7 @@ describe("Aula Nova API", () => {
       .send({
         programId,
         code: "PLAN-TEST-2026",
+        matriculationCode: "PT",
         name: "Plan automatizado",
         version: "2026",
         assignExisting: false,
@@ -143,6 +144,7 @@ describe("Aula Nova API", () => {
       });
     expect(created.status).toBe(201);
     expect(created.body.total_credits).toBe(10);
+    expect(created.body.matriculation_code).toBe("PT");
 
     const detail = await request(app).get(`/api/plans/${created.body.id}`).set("Authorization", `Bearer ${token}`);
     expect(detail.body.subjects).toHaveLength(2);
@@ -154,6 +156,7 @@ describe("Aula Nova API", () => {
       .send({
         programId,
         code: "PLAN-TEST-2026",
+        matriculationCode: "PT",
         name: "Plan automatizado editado",
         version: "2027",
         assignExisting: false,
@@ -182,6 +185,7 @@ describe("Aula Nova API", () => {
       .send({
         programId,
         code: "PAY-PLAN-2026",
+        matriculationCode: "BG",
         name: "Plan con colegiatura",
         version: "2026",
         tuitionAmount: 1000,
@@ -415,25 +419,93 @@ describe("Aula Nova API", () => {
     const [programs, shifts, groups, cycles, periods, statuses] = catalogs.map((response) => response.body.records);
     const targetGroup = groups.find((group: any) => group.name === "1A");
     const targetPeriod = periods.find((period: any) => period.cycle_id === targetGroup.cycle_id);
+    const plan = await request(app)
+      .post("/api/plans")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        programId: targetGroup.program_id,
+        code: "MATRICULA-LE-2026",
+        matriculationCode: "LE",
+        name: "Plan de prueba para matrícula",
+        version: "2026",
+        assignExisting: false,
+        subjects: [
+          { code: "MATRICULA-101", name: "Materia para matrícula", subjectType: "mandatory", credits: 4, recommendedPeriod: 1 }
+        ]
+      });
+    expect(plan.status).toBe(201);
     const created = await request(app)
       .post("/api/students")
       .set("Authorization", `Bearer ${token}`)
       .send({
-        studentNumber: "TEST-001",
-        firstName: "Alex",
-        lastName: "Prueba",
+        firstName: "Juan Carlos",
+        lastName: "Cordova",
+        secondLastName: "Marin",
         statusId: statuses[0].id,
         programId: targetGroup.program_id,
         shiftId: targetGroup.shift_id,
         groupId: targetGroup.id,
         cycleId: targetGroup.cycle_id,
+        planId: plan.body.id,
         periodId: targetPeriod.id
       });
     expect(created.status).toBe(201);
-    expect(created.body.student_number).toBe("TEST-001");
+    expect(created.body.student_number).toBe("0826CMJLEESC");
+    expect(created.body.email).toBe("0826cmjleesc@alumnoifop.edu");
+    expect(created.body.plan_id).toBe(plan.body.id);
+    expect(created.body.access).toEqual({
+      email: "0826cmjleesc@alumnoifop.edu",
+      temporaryPassword: "1234juan"
+    });
+
+    const studentLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "0826cmjleesc@alumnoifop.edu", password: "1234juan" });
+    expect(studentLogin.status).toBe(200);
+    expect(studentLogin.body.user.studentId).toBe(created.body.id);
+    expect(studentLogin.body.user.passwordMustChange).toBe(true);
+
+    await request(app)
+      .post("/api/auth/change-password")
+      .set("Authorization", `Bearer ${studentLogin.body.token}`)
+      .send({ currentPassword: "1234juan", newPassword: "NuevaClave2026!", confirmPassword: "NuevaClave2026!" })
+      .expect(200);
+    await request(app)
+      .post("/api/auth/login")
+      .send({ email: "0826cmjleesc@alumnoifop.edu", password: "NuevaClave2026!" })
+      .expect(200);
+
+    const users = await request(app).get("/api/users").set("Authorization", `Bearer ${token}`);
+    const studentUser = users.body.find((user: any) => user.student_id === created.body.id);
+    const reset = await request(app)
+      .post(`/api/users/${studentUser.id}/reset-student-password`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(reset.status).toBe(200);
+    expect(reset.body.temporaryPassword).toBe("1234juan");
+    await request(app)
+      .post("/api/auth/login")
+      .send({ email: "0826cmjleesc@alumnoifop.edu", password: "1234juan" })
+      .expect(200);
+
+    const duplicate = await request(app)
+      .post("/api/students")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        firstName: "Juan Carlos",
+        lastName: "Cordova",
+        secondLastName: "Marin",
+        statusId: statuses[0].id,
+        programId: targetGroup.program_id,
+        shiftId: targetGroup.shift_id,
+        groupId: targetGroup.id,
+        cycleId: targetGroup.cycle_id,
+        planId: plan.body.id,
+        periodId: targetPeriod.id
+      });
+    expect(duplicate.status).toBe(409);
 
     const filtered = await request(app)
-      .get("/api/students?search=TEST-001")
+      .get("/api/students?search=0826CMJLEESC")
       .set("Authorization", `Bearer ${token}`);
     expect(filtered.body.pagination.total).toBe(1);
 
@@ -458,8 +530,12 @@ describe("Aula Nova API", () => {
       .delete(`/api/students/${created.body.id}/permanent`)
       .set("Authorization", `Bearer ${token}`)
       .expect(204);
-    const removed = await request(app).get("/api/students?search=TEST-001").set("Authorization", `Bearer ${token}`);
+    const removed = await request(app).get("/api/students?search=0826CMJLEESC").set("Authorization", `Bearer ${token}`);
     expect(removed.body.pagination.total).toBe(0);
+    await request(app)
+      .delete(`/api/plans/${plan.body.id}/permanent`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(204);
   });
 
   it("permanently deletes an unused subject", async () => {
@@ -505,10 +581,10 @@ describe("Aula Nova API", () => {
   it("previews and applies an Excel student import", async () => {
     const workbook = XLSX.utils.book_new();
     const sheet = XLSX.utils.json_to_sheet([{
-      "Matrícula": "TEST-IMP-01",
       "Nombre(s)": "Marina",
       "Apellido paterno": "Importada",
       "Programa": "Bachillerato General",
+      "Plan académico": "Plan con colegiatura",
       "Turno": "Matutino",
       "Grupo": "1A",
       "Ciclo": "2026-2027",
@@ -523,6 +599,7 @@ describe("Aula Nova API", () => {
       .attach("file", buffer, "alumnos.xlsx");
     expect(preview.status).toBe(200);
     expect(preview.body.summary.valid).toBe(1);
+    expect(preview.body.rows[0].studentNumber).toBe("0826IXMBGESC");
 
     const applied = await request(app)
       .post("/api/students/import/apply")
@@ -530,6 +607,13 @@ describe("Aula Nova API", () => {
       .send({ previewId: preview.body.previewId, existingMode: "ignore" });
     expect(applied.status).toBe(200);
     expect(applied.body.created).toBe(1);
+    const imported = await request(app).get("/api/students?search=0826IXMBGESC").set("Authorization", `Bearer ${token}`);
+    expect(imported.body.records[0].email).toBe("0826ixmbgesc@alumnoifop.edu");
+    const importedLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "0826ixmbgesc@alumnoifop.edu", password: "1234marina" });
+    expect(importedLogin.status).toBe(200);
+    expect(importedLogin.body.user.studentId).toBe(imported.body.records[0].id);
   });
 
   it("updates grades and records immutable history", async () => {

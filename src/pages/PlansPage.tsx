@@ -10,6 +10,7 @@ type Plan = {
   id: number;
   program_id: number;
   code: string;
+  matriculation_code: string;
   name: string;
   version: string;
   program_name: string;
@@ -62,7 +63,7 @@ export function PlansPage() {
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [deleting, setDeleting] = useState<Plan | null>(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ programId: "", code: "", name: "", version: "2026", description: "", tuitionAmount: "", assignExisting: true });
+  const [form, setForm] = useState({ programId: "", code: "", matriculationCode: "", name: "", version: "2026", description: "", tuitionAmount: "", assignExisting: true });
   const [drafts, setDrafts] = useState<SubjectDraft[]>([emptySubject()]);
 
   async function loadPlans(preferredId?: number) {
@@ -97,7 +98,7 @@ export function PlansPage() {
 
   function openCreate() {
     setEditingPlan(null);
-    setForm({ programId: "", code: "", name: "", version: "2026", description: "", tuitionAmount: "", assignExisting: true });
+    setForm({ programId: "", code: "", matriculationCode: "", name: "", version: "2026", description: "", tuitionAmount: "", assignExisting: true });
     setDrafts([emptySubject()]);
     setOpen(true);
   }
@@ -109,6 +110,7 @@ export function PlansPage() {
     setForm({
       programId: String(detail.plan.program_id),
       code: detail.plan.code,
+      matriculationCode: detail.plan.matriculation_code,
       name: detail.plan.name,
       version: detail.plan.version,
       description: detail.plan.description ?? "",
@@ -134,7 +136,7 @@ export function PlansPage() {
       toast.success(editingPlan ? "Plan académico actualizado." : "Plan académico creado y créditos calculados.");
       setOpen(false);
       setEditingPlan(null);
-      setForm({ programId: "", code: "", name: "", version: "2026", description: "", tuitionAmount: "", assignExisting: true });
+      setForm({ programId: "", code: "", matriculationCode: "", name: "", version: "2026", description: "", tuitionAmount: "", assignExisting: true });
       setDrafts([emptySubject()]);
       await loadPlans(saved.id);
     } catch (error) {
@@ -191,7 +193,7 @@ export function PlansPage() {
       <section className="plan-workspace">
         {selected ? <>
           <header className="plan-header">
-            <div><span>{selected.program_name}</span><h2>{selected.name}</h2><p>{selected.code} · Versión {selected.version}</p></div>
+            <div><span>{selected.program_name}</span><h2>{selected.name}</h2><p>{selected.code} · Matrícula {selected.matriculation_code} · Versión {selected.version}</p></div>
             {can("catalogs.manage") && <div className="plan-header-actions"><Button variant="secondary" icon={<Pencil size={17} />} onClick={openEdit}>Editar</Button><Button variant="secondary" icon={<Power size={17} />} onClick={togglePlan}>{selected.is_active ? "Desactivar" : "Activar"}</Button><Button variant="danger" icon={<Trash2 size={17} />} onClick={() => setDeleting(selected)}>Eliminar</Button></div>}
           </header>
           <div className="plan-summary">
@@ -212,6 +214,7 @@ export function PlansPage() {
           <div className="form-grid three">
             <Field label="Programa" required><Select options={programs} value={form.programId} onChange={(event) => setForm({ ...form, programId: event.target.value })} required /></Field>
             <Field label="Clave del plan" required><input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} placeholder="LIC-ADM-2026" required /></Field>
+            <Field label="Código para matrícula" required hint="Código corto del programa, por ejemplo LE."><input maxLength={10} value={form.matriculationCode} onChange={(event) => setForm({ ...form, matriculationCode: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} placeholder="LE" required /></Field>
             <Field label="Versión" required><input value={form.version} onChange={(event) => setForm({ ...form, version: event.target.value })} required /></Field>
           </div>
           <div className="form-grid two">

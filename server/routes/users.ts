@@ -2,6 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
+import { resetStudentPassword, studentInstitutionalEmail } from "../services/student-account.js";
 import { ApiError, asId, cleanText, optionalText } from "../utils.js";
 
 export const usersRouter = Router();
@@ -10,7 +11,7 @@ usersRouter.get("/", requirePermission("users.manage"), (_req, res) => {
   res.json(all(
     `SELECT u.id, u.full_name, u.email, u.role_id, r.name AS role_name, u.student_id,
      st.student_number, TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) AS student_name,
-     u.is_active, u.last_login_at, u.created_at
+     u.is_active, u.password_must_change, u.last_login_at, u.created_at
      FROM users u JOIN roles r ON r.id = u.role_id
      LEFT JOIN students st ON st.id = u.student_id ORDER BY u.full_name`
   ));
@@ -20,7 +21,10 @@ usersRouter.get("/student-options", requirePermission("users.manage"), (_req, re
   res.json(all(
     `SELECT st.id, st.student_number,
      TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) || ' · ' || st.student_number AS name
-     FROM students st WHERE st.is_active = 1 ORDER BY st.last_name, st.first_name`
+     FROM students st
+     WHERE st.is_active = 1
+     AND NOT EXISTS (SELECT 1 FROM users u WHERE u.student_id = st.id)
+     ORDER BY st.last_name, st.first_name`
   ));
 });
 
@@ -33,6 +37,9 @@ usersRouter.post("/", requirePermission("users.manage"), async (req: Authenticat
   const role = get<{ name: string }>("SELECT name FROM roles WHERE id = ?", roleId);
   if (!role) throw new ApiError(400, "El rol seleccionado no existe.");
   const studentId = role.name === "Alumno" ? asId(req.body.studentId, "Alumno vinculado") : null;
+  if (studentId && get("SELECT id FROM users WHERE student_id = ?", studentId)) {
+    throw new ApiError(409, "El alumno seleccionado ya tiene una cuenta vinculada.");
+  }
   const result = run(
     "INSERT INTO users(full_name, email, password_hash, role_id, student_id) VALUES (?, ?, ?, ?, ?)",
     fullName,
@@ -51,16 +58,28 @@ usersRouter.patch("/:id", requirePermission("users.manage"), async (req: Authent
   if (!current) throw new ApiError(404, "No se encontró el usuario.");
   if (id === req.user!.id && req.body.isActive === false) throw new ApiError(400, "No puedes desactivar tu propia cuenta.");
   const passwordHash = req.body.password ? await bcrypt.hash(String(req.body.password), 12) : null;
-  const roleId = req.body.roleId ? asId(req.body.roleId, "Rol") : current.role_id;
+  const linkedStudent = current.student_id
+    ? get<{
+        student_number: string;
+        first_name: string;
+        last_name: string;
+        second_last_name: string | null;
+      }>("SELECT student_number, first_name, last_name, second_last_name FROM students WHERE id = ?", current.student_id)
+    : undefined;
+  const roleId = linkedStudent ? current.role_id : req.body.roleId ? asId(req.body.roleId, "Rol") : current.role_id;
   const role = get<{ name: string }>("SELECT name FROM roles WHERE id = ?", roleId);
   if (!role) throw new ApiError(400, "El rol seleccionado no existe.");
-  const studentId = role.name === "Alumno" ? asId(req.body.studentId ?? current.student_id, "Alumno vinculado") : null;
+  const studentId = linkedStudent ? current.student_id : role.name === "Alumno" ? asId(req.body.studentId ?? current.student_id, "Alumno vinculado") : null;
+  const linkedName = linkedStudent
+    ? [linkedStudent.first_name, linkedStudent.last_name, linkedStudent.second_last_name].filter(Boolean).join(" ")
+    : null;
+  const linkedEmail = linkedStudent ? studentInstitutionalEmail(linkedStudent.student_number) : null;
   run(
     `UPDATE users SET full_name = COALESCE(?, full_name), email = COALESCE(?, email),
      role_id = COALESCE(?, role_id), is_active = COALESCE(?, is_active),
      password_hash = COALESCE(?, password_hash), student_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-    req.body.fullName ? cleanText(req.body.fullName, 180) : null,
-    req.body.email ? cleanText(req.body.email, 180).toLowerCase() : null,
+    linkedName ?? (req.body.fullName ? cleanText(req.body.fullName, 180) : null),
+    linkedEmail ?? (req.body.email ? cleanText(req.body.email, 180).toLowerCase() : null),
     roleId,
     req.body.isActive === undefined ? null : req.body.isActive ? 1 : 0,
     passwordHash,
@@ -69,6 +88,17 @@ usersRouter.patch("/:id", requirePermission("users.manage"), async (req: Authent
   );
   logActivity(req, "update", "users", id, { ...req.body, password: req.body.password ? "[updated]" : undefined });
   res.json({ message: "Usuario actualizado." });
+});
+
+usersRouter.post("/:id/reset-student-password", requirePermission("users.manage"), (req: AuthenticatedRequest, res) => {
+  const id = asId(req.params.id, "Usuario");
+  const access = resetStudentPassword(id);
+  logActivity(req, "reset-student-password", "users", id, { email: access.email });
+  res.json({
+    message: "Contraseña del alumno restablecida.",
+    email: access.email,
+    temporaryPassword: access.temporaryPassword
+  });
 });
 
 usersRouter.get("/roles/list", requirePermission("users.manage"), (_req, res) => {

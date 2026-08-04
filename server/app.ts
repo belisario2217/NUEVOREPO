@@ -19,6 +19,9 @@ import { plansRouter } from "./routes/plans.js";
 import { portalRouter } from "./routes/portal.js";
 import { paymentsRouter } from "./routes/payments.js";
 import { messagesRouter } from "./routes/messages.js";
+import { ensureAllStudentAccounts } from "./services/student-account.js";
+
+ensureAllStudentAccounts();
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const uploadsDir = process.env.UPLOADS_PATH

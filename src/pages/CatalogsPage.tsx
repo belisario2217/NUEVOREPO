@@ -7,7 +7,15 @@ import { Modal } from "../components/Modal";
 import { Button, EmptyState, Field, Select, StatusBadge } from "../components/Ui";
 
 type CatalogSummary = { key: string; label: string; singular: string };
-type FieldDefinition = { name: string; label: string; type?: string; required?: boolean; reference?: string };
+type FieldDefinition = {
+  name: string;
+  label: string;
+  type?: string;
+  required?: boolean;
+  reference?: string;
+  options?: Array<{ value: string; label: string }>;
+  defaultValue?: string | number | boolean;
+};
 type CatalogData = { definition: { label: string; singular: string; fields: FieldDefinition[] }; records: any[] };
 
 export function CatalogsPage() {
@@ -43,7 +51,11 @@ export function CatalogsPage() {
 
   async function openForm(record?: any) {
     setEditing(record ?? null);
-    setForm(record ? { ...record } : {});
+    setForm(record ? { ...record } : Object.fromEntries(
+      (data?.definition.fields ?? [])
+        .filter((field) => field.defaultValue !== undefined)
+        .map((field) => [field.name, field.defaultValue])
+    ));
     setModalOpen(true);
     const refs = [...new Set(data?.definition.fields.map((field) => field.reference).filter(Boolean) ?? [])] as string[];
     const entries = await Promise.all(refs.map(async (type) => {
@@ -129,7 +141,9 @@ export function CatalogsPage() {
                         {field.type === "boolean"
                           ? <StatusBadge active={Boolean(record[field.name])} label={record[field.name] ? "Sí" : "No"} />
                           : <span className={field.name === "name" || field.name === "full_name" ? "table-main" : ""}>
-                              {field.reference ? record[`${field.name.replace("_id", "")}_name`] ?? record[field.name] : record[field.name] ?? "—"}
+                              {field.reference
+                                ? record[`${field.name.replace("_id", "")}_name`] ?? record[field.name]
+                                : field.options?.find((option) => option.value === record[field.name])?.label ?? record[field.name] ?? "—"}
                             </span>}
                       </td>
                     ))}
@@ -155,6 +169,11 @@ export function CatalogsPage() {
                   ? <Select options={references[field.reference] ?? []} value={form[field.name] ?? ""} onChange={(event) => setForm({ ...form, [field.name]: event.target.value })} required={field.required} />
                   : field.type === "boolean"
                     ? <label className="toggle-control"><input type="checkbox" checked={Boolean(form[field.name])} onChange={(event) => setForm({ ...form, [field.name]: event.target.checked })} /><i /><span>{form[field.name] ? "Sí" : "No"}</span></label>
+                    : field.type === "select"
+                      ? <select value={form[field.name] ?? ""} onChange={(event) => setForm({ ...form, [field.name]: event.target.value })} required={field.required}>
+                          <option value="">Selecciona una opción</option>
+                          {(field.options ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
                     : <input type={field.type === "number" ? "number" : field.type === "date" ? "date" : field.type === "time" ? "time" : field.type === "color" ? "color" : "text"} value={form[field.name] ?? ""} onChange={(event) => setForm({ ...form, [field.name]: event.target.value })} required={field.required} />}
               </Field>
             ))}

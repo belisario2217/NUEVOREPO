@@ -34,6 +34,9 @@ type Student = {
   cycle_id: number;
   cycle_name: string;
   period_id: number | null;
+  plan_id: number | null;
+  plan_name: string | null;
+  study_modality: "escolarizado" | "semiescolarizado" | "complementario" | null;
 };
 
 type Option = {
@@ -43,12 +46,20 @@ type Option = {
   program_id?: number;
   shift_id?: number;
   cycle_id?: number;
+  study_modality?: "escolarizado" | "semiescolarizado" | "complementario";
 };
+type PlanOption = { id: number; name: string; program_id: number; matriculation_code: string; is_active: number };
 type Filters = { search: string; programId: string; shiftId: string; groupId: string; cycleId: string; statusId: string };
 const blankFilters: Filters = { search: "", programId: "", shiftId: "", groupId: "", cycleId: "", statusId: "" };
 const blankForm = {
   studentNumber: "", firstName: "", lastName: "", secondLastName: "", curp: "", birthDate: "",
-  email: "", phone: "", notes: "", statusId: "", programId: "", shiftId: "", groupId: "", cycleId: "", periodId: ""
+  email: "", phone: "", notes: "", statusId: "", programId: "", shiftId: "", groupId: "", cycleId: "", planId: "", periodId: ""
+};
+
+const modalityLabels = {
+  escolarizado: "Escolarizado (ESC)",
+  semiescolarizado: "Semiescolarizado (SEM)",
+  complementario: "Complementario (COM)"
 };
 
 export function StudentsPage() {
@@ -60,6 +71,7 @@ export function StudentsPage() {
   const [filters, setFilters] = useState<Filters>(blankFilters);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(blankFilters);
   const [options, setOptions] = useState<Record<string, Option[]>>({});
+  const [plans, setPlans] = useState<PlanOption[]>([]);
   const [editing, setEditing] = useState<Student | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(blankForm);
@@ -69,6 +81,7 @@ export function StudentsPage() {
   const [existingMode, setExistingMode] = useState("ignore");
   const [menuFor, setMenuFor] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<Student | null>(null);
+  const [createdAccess, setCreatedAccess] = useState<{ studentName: string; studentNumber: string; email: string; temporaryPassword: string } | null>(null);
 
   async function load(page = 1, current = appliedFilters) {
     const query = new URLSearchParams({ page: String(page), pageSize: "20" });
@@ -87,17 +100,34 @@ export function StudentsPage() {
         color: item.color,
         program_id: item.program_id,
         shift_id: item.shift_id,
-        cycle_id: item.cycle_id
+        cycle_id: item.cycle_id,
+        study_modality: item.study_modality
       }))] as const;
     })).then((entries) => setOptions(Object.fromEntries(entries)));
+    api<PlanOption[]>("/plans").then((records) => setPlans(records.filter((plan) => plan.is_active)));
     load();
   }, []);
 
-  const visibleGroups = useMemo(() => {
+  const filterGroups = useMemo(() => {
     const groups = options.groups ?? [];
     if (!filters.programId) return groups;
     return groups.filter((group) => String(group.program_id ?? "") === filters.programId);
   }, [options.groups, filters.programId]);
+
+  const formGroups = useMemo(() => {
+    const groups = options.groups ?? [];
+    if (!form.programId) return groups;
+    return groups.filter((group) => String(group.program_id ?? "") === form.programId);
+  }, [options.groups, form.programId]);
+
+  const formPlans = useMemo(() => plans
+    .filter((plan) => !form.programId || String(plan.program_id) === form.programId)
+    .map((plan) => ({ id: plan.id, name: `${plan.name} (${plan.matriculation_code})` })), [plans, form.programId]);
+
+  const selectedFormGroup = useMemo(
+    () => (options.groups ?? []).find((group) => String(group.id) === form.groupId),
+    [options.groups, form.groupId]
+  );
 
   function selectProgram(programId: string) {
     const selectedGroup = (options.groups ?? []).find((group) => String(group.id) === filters.groupId);
@@ -111,6 +141,32 @@ export function StudentsPage() {
       ...filters,
       groupId,
       programId: group?.program_id ? String(group.program_id) : filters.programId
+    });
+  }
+
+  function selectFormProgram(programId: string) {
+    const group = (options.groups ?? []).find((item) => String(item.id) === form.groupId);
+    const plan = plans.find((item) => String(item.id) === form.planId);
+    setForm({
+      ...form,
+      programId,
+      groupId: group && String(group.program_id) === programId ? form.groupId : "",
+      planId: plan && String(plan.program_id) === programId ? form.planId : ""
+    });
+  }
+
+  function selectFormGroup(groupId: string) {
+    const group = (options.groups ?? []).find((item) => String(item.id) === groupId);
+    if (!group) return setForm({ ...form, groupId });
+    const programId = String(group.program_id ?? form.programId);
+    const selectedPlan = plans.find((plan) => String(plan.id) === form.planId);
+    setForm({
+      ...form,
+      groupId,
+      programId,
+      shiftId: String(group.shift_id ?? form.shiftId),
+      cycleId: String(group.cycle_id ?? form.cycleId),
+      planId: selectedPlan && String(selectedPlan.program_id) === programId ? form.planId : ""
     });
   }
 
@@ -137,6 +193,7 @@ export function StudentsPage() {
       shiftId: String(student.shift_id),
       groupId: String(student.group_id),
       cycleId: String(student.cycle_id),
+      planId: student.plan_id ? String(student.plan_id) : "",
       periodId: student.period_id ? String(student.period_id) : ""
     });
     setFormOpen(true);
@@ -147,11 +204,19 @@ export function StudentsPage() {
     event.preventDefault();
     setBusy(true);
     try {
-      await api(editing ? `/students/${editing.id}` : "/students", {
+      const saved = await api<Student & { access?: { email: string; temporaryPassword: string | null } }>(editing ? `/students/${editing.id}` : "/students", {
         method: editing ? "PATCH" : "POST",
         body: form
       });
-      toast.success(editing ? "Alumno actualizado." : "Alumno registrado.");
+      toast.success(editing ? "Alumno actualizado." : `Alumno registrado con matrícula ${saved.student_number}.`);
+      if (!editing && saved.access?.temporaryPassword) {
+        setCreatedAccess({
+          studentName: saved.full_name,
+          studentNumber: saved.student_number,
+          email: saved.access.email,
+          temporaryPassword: saved.access.temporaryPassword
+        });
+      }
       setFormOpen(false);
       load(pagination.page);
     } catch (error) {
@@ -203,11 +268,11 @@ export function StudentsPage() {
   async function applyImport() {
     setBusy(true);
     try {
-      const result = await api<{ message: string; created: number; updated: number; ignored: number }>("/students/import/apply", {
+      const result = await api<{ message: string; created: number; updated: number; ignored: number; accountsCreated: number }>("/students/import/apply", {
         method: "POST",
         body: { previewId: preview.previewId, existingMode }
       });
-      toast.success(`${result.message} ${result.created} nuevos, ${result.updated} actualizados.`);
+      toast.success(`${result.message} ${result.created} alumnos y ${result.accountsCreated} accesos nuevos.`);
       setImportOpen(false);
       setPreview(null);
       load(1);
@@ -224,7 +289,7 @@ export function StudentsPage() {
         <div className="toolbar-primary">
           <div className="search-box"><Search size={18} /><input placeholder="Buscar por nombre o matrícula" value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} /></div>
           <Select value={filters.programId} onChange={(event) => selectProgram(event.target.value)} options={options.programs ?? []} placeholder="Todos los programas" aria-label="Programa" />
-          <Select value={filters.groupId} onChange={(event) => selectGroup(event.target.value)} options={visibleGroups} placeholder="Todos los grupos" aria-label="Grupo" />
+          <Select value={filters.groupId} onChange={(event) => selectGroup(event.target.value)} options={filterGroups} placeholder="Todos los grupos" aria-label="Grupo" />
           <Button variant="secondary" onClick={() => { setAppliedFilters(filters); load(1, filters); }}>Filtrar</Button>
         </div>
         <div className="toolbar-actions">
@@ -288,22 +353,24 @@ export function StudentsPage() {
         <form onSubmit={saveStudent}>
           <div className="form-section-title"><UserRound size={18} /><div><strong>Datos personales</strong><span>Identificación y contacto del alumno</span></div></div>
           <div className="form-grid three">
-            <Field label="Matrícula" required><input value={form.studentNumber} onChange={(event) => setForm({ ...form, studentNumber: event.target.value })} required /></Field>
+            <Field label="Matrícula" hint={editing ? "Identificador protegido." : "Se genera con ciclo, iniciales, plan y modalidad."}><input value={editing ? form.studentNumber : "Automática al registrar"} readOnly /></Field>
             <Field label="Nombre(s)" required><input value={form.firstName} onChange={(event) => setForm({ ...form, firstName: event.target.value })} required /></Field>
             <Field label="Apellido paterno" required><input value={form.lastName} onChange={(event) => setForm({ ...form, lastName: event.target.value })} required /></Field>
-            <Field label="Apellido materno"><input value={form.secondLastName} onChange={(event) => setForm({ ...form, secondLastName: event.target.value })} /></Field>
+            <Field label="Apellido materno" hint="Si no existe, la matrícula usará X."><input value={form.secondLastName} onChange={(event) => setForm({ ...form, secondLastName: event.target.value })} /></Field>
             <Field label="CURP"><input value={form.curp} onChange={(event) => setForm({ ...form, curp: event.target.value.toUpperCase() })} /></Field>
             <Field label="Fecha de nacimiento"><input type="date" value={form.birthDate} onChange={(event) => setForm({ ...form, birthDate: event.target.value })} /></Field>
-            <Field label="Correo"><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></Field>
+            <Field label="Correo institucional" hint="matrícula@alumnoifop.edu"><input type="email" value={editing ? form.email : "Automático al registrar"} readOnly /></Field>
             <Field label="Teléfono"><input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></Field>
             <Field label="Estatus" required><Select value={form.statusId} onChange={(event) => setForm({ ...form, statusId: event.target.value })} options={options.statuses ?? []} required /></Field>
           </div>
           <div className="form-section-title"><GraduationCapIcon /><div><strong>Inscripción académica</strong><span>Ubicación dentro del ciclo escolar</span></div></div>
           <div className="form-grid three">
-            <Field label="Programa" required><Select value={form.programId} onChange={(event) => setForm({ ...form, programId: event.target.value })} options={options.programs ?? []} required /></Field>
+            <Field label="Programa" required><Select value={form.programId} onChange={(event) => selectFormProgram(event.target.value)} options={options.programs ?? []} required /></Field>
             <Field label="Turno" required><Select value={form.shiftId} onChange={(event) => setForm({ ...form, shiftId: event.target.value })} options={options.shifts ?? []} required /></Field>
-            <Field label="Grupo" required><Select value={form.groupId} onChange={(event) => setForm({ ...form, groupId: event.target.value })} options={visibleGroups} required /></Field>
+            <Field label="Grupo" required><Select value={form.groupId} onChange={(event) => selectFormGroup(event.target.value)} options={formGroups} required /></Field>
             <Field label="Ciclo" required><Select value={form.cycleId} onChange={(event) => setForm({ ...form, cycleId: event.target.value })} options={options.cycles ?? []} required /></Field>
+            <Field label="Plan académico" required><Select value={form.planId} onChange={(event) => setForm({ ...form, planId: event.target.value })} options={formPlans} required /></Field>
+            <Field label="Modalidad del grupo"><input value={selectedFormGroup?.study_modality ? modalityLabels[selectedFormGroup.study_modality] : "Selecciona un grupo"} readOnly /></Field>
             <Field label="Periodo"><Select value={form.periodId} onChange={(event) => setForm({ ...form, periodId: event.target.value })} options={options.periods ?? []} /></Field>
             <Field label="Observaciones"><input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>
           </div>
@@ -348,6 +415,16 @@ export function StudentsPage() {
       <Modal open={Boolean(deleting)} onClose={() => setDeleting(null)} title="Eliminar alumno" size="small">
         <div className="danger-confirmation"><TriangleAlert size={30} /><div><strong>Se eliminará todo el expediente</strong><p>Esta acción borrará a {deleting?.full_name}, sus inscripciones, calificaciones y cuenta de acceso vinculada. No se puede deshacer.</p></div></div>
         <div className="modal-actions"><Button variant="ghost" onClick={() => setDeleting(null)}>Cancelar</Button><Button variant="danger" icon={<Trash2 size={17} />} busy={busy} onClick={permanentlyDelete}>Eliminar alumno</Button></div>
+      </Modal>
+
+      <Modal open={Boolean(createdAccess)} onClose={() => setCreatedAccess(null)} title="Acceso institucional creado" size="small">
+        <div className="form-grid">
+          <p>El alumno {createdAccess?.studentName} ya puede ingresar a la plataforma. Comparte estas credenciales de forma segura.</p>
+          <Field label="Matrícula"><input value={createdAccess?.studentNumber ?? ""} readOnly /></Field>
+          <Field label="Correo institucional"><input value={createdAccess?.email ?? ""} readOnly /></Field>
+          <Field label="Contraseña temporal"><input value={createdAccess?.temporaryPassword ?? ""} readOnly /></Field>
+          <div className="modal-actions"><Button onClick={() => setCreatedAccess(null)}>Entendido</Button></div>
+        </div>
       </Modal>
     </div>
   );

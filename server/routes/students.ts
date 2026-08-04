@@ -4,6 +4,8 @@ import { logActivity, requirePermission, type AuthenticatedRequest } from "../au
 import { all, get, run, transaction } from "../db.js";
 import { createPdf, parseWorkbook, pdfTable, sendWorkbook, type TabularRow } from "../services/files.js";
 import { syncEnrollmentGroupSubjects } from "../services/group-subjects.js";
+import { provisionStudentAccount } from "../services/student-account.js";
+import { generateStudentIdentity } from "../services/student-identity.js";
 import { ApiError, asId, cleanText, optionalText, sendCsv } from "../utils.js";
 
 type StudentImportRow = {
@@ -19,6 +21,7 @@ type StudentImportRow = {
   shiftId: number;
   groupId: number;
   cycleId: number;
+  planId: number;
   periodId: number | null;
   statusId: number;
   exists: boolean;
@@ -63,8 +66,8 @@ function studentSelect(where = "1 = 1") {
     st.curp, st.birth_date, st.email, st.phone, st.emergency_contact, st.address, st.notes,
     st.is_active, ss.id AS status_id, ss.name AS status_name, ss.color AS status_color,
     e.id AS enrollment_id, e.program_id, p.name AS program_name, e.shift_id, sh.name AS shift_name,
-    e.group_id, g.name AS group_name, e.cycle_id, sc.name AS cycle_name, e.period_id,
-    ap.name AS period_name
+    e.group_id, g.name AS group_name, g.study_modality, e.cycle_id, sc.name AS cycle_name, e.period_id,
+    e.plan_id, pl.name AS plan_name, pl.matriculation_code, ap.name AS period_name
     FROM students st
     JOIN student_statuses ss ON ss.id = st.status_id
     LEFT JOIN enrollments e ON e.student_id = st.id AND e.is_active = 1
@@ -72,6 +75,7 @@ function studentSelect(where = "1 = 1") {
     LEFT JOIN shifts sh ON sh.id = e.shift_id
     LEFT JOIN groups g ON g.id = e.group_id
     LEFT JOIN school_cycles sc ON sc.id = e.cycle_id
+    LEFT JOIN academic_plans pl ON pl.id = e.plan_id
     LEFT JOIN academic_periods ap ON ap.id = e.period_id
     WHERE ${where}`;
 }
@@ -126,20 +130,37 @@ studentsRouter.get("/record/:id", requirePermission("students.view"), (req, res)
 
 studentsRouter.post("/", requirePermission("students.manage"), (req: AuthenticatedRequest, res) => {
   const body = req.body;
-  const required = ["studentNumber", "firstName", "lastName", "statusId", "programId", "shiftId", "groupId", "cycleId"];
+  const required = ["firstName", "lastName", "statusId", "programId", "shiftId", "groupId", "cycleId", "planId"];
   if (required.some((field) => !body[field])) throw new ApiError(400, "Completa los datos obligatorios del alumno.");
-  const id = transaction(() => {
+  const firstName = cleanText(body.firstName, 100);
+  const lastName = cleanText(body.lastName, 100);
+  const secondLastName = optionalText(body.secondLastName, 100);
+  const programId = asId(body.programId, "Programa");
+  const shiftId = asId(body.shiftId, "Turno");
+  const groupId = asId(body.groupId, "Grupo");
+  const cycleId = asId(body.cycleId, "Ciclo");
+  const planId = asId(body.planId, "Plan académico");
+  const identity = generateStudentIdentity({
+    firstName, lastName, secondLastName, programId, shiftId, groupId, cycleId, planId
+  });
+  if (get("SELECT id FROM students WHERE student_number = ?", identity.studentNumber)) {
+    throw new ApiError(409, `La matrícula ${identity.studentNumber} ya existe. Verifica los nombres, el ciclo, el plan y la modalidad.`);
+  }
+  if (body.periodId && !get("SELECT id FROM academic_periods WHERE id = ? AND cycle_id = ? AND is_active = 1", asId(body.periodId, "Periodo"), cycleId)) {
+    throw new ApiError(400, "El periodo seleccionado no corresponde al ciclo escolar.");
+  }
+  const created = transaction(() => {
     const student = run(
       `INSERT INTO students(student_number, first_name, last_name, second_last_name, curp, birth_date,
        email, phone, emergency_contact, address, notes, status_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      cleanText(body.studentNumber, 40),
-      cleanText(body.firstName, 100),
-      cleanText(body.lastName, 100),
-      optionalText(body.secondLastName, 100),
+      identity.studentNumber,
+      firstName,
+      lastName,
+      secondLastName,
       optionalText(body.curp, 30),
       optionalText(body.birthDate, 20),
-      optionalText(body.email, 180),
+      identity.email,
       optionalText(body.phone, 40),
       optionalText(body.emergencyContact, 180),
       optionalText(body.address, 300),
@@ -148,20 +169,39 @@ studentsRouter.post("/", requirePermission("students.manage"), (req: Authenticat
     );
     const studentId = Number(student.lastInsertRowid);
     const enrollment = run(
-      `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, period_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, period_id, plan_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       studentId,
-      asId(body.programId, "Programa"),
-      asId(body.shiftId, "Turno"),
-      asId(body.groupId, "Grupo"),
-      asId(body.cycleId, "Ciclo"),
-      body.periodId ? asId(body.periodId, "Periodo") : null
+      programId,
+      shiftId,
+      groupId,
+      cycleId,
+      body.periodId ? asId(body.periodId, "Periodo") : null,
+      planId
     );
     syncEnrollmentGroupSubjects(Number(enrollment.lastInsertRowid));
-    return studentId;
+    const access = provisionStudentAccount({
+      studentId,
+      studentNumber: identity.studentNumber,
+      firstName,
+      lastName,
+      secondLastName
+    });
+    return { studentId, access };
   });
-  logActivity(req, "create", "students", id, { studentNumber: body.studentNumber });
-  res.status(201).json(get(`${studentSelect("st.id = ?")}`, id));
+  logActivity(req, "create", "students", created.studentId, {
+    studentNumber: identity.studentNumber,
+    planId,
+    studyModality: identity.studyModality,
+    accessCreated: created.access.created
+  });
+  res.status(201).json({
+    ...get(`${studentSelect("st.id = ?")}`, created.studentId),
+    access: {
+      email: created.access.email,
+      temporaryPassword: created.access.temporaryPassword
+    }
+  });
 });
 
 studentsRouter.patch("/:id", requirePermission("students.manage"), (req: AuthenticatedRequest, res) => {
@@ -170,17 +210,15 @@ studentsRouter.patch("/:id", requirePermission("students.manage"), (req: Authent
   const body = req.body;
   transaction(() => {
     run(
-      `UPDATE students SET student_number = COALESCE(?, student_number), first_name = COALESCE(?, first_name),
-       last_name = COALESCE(?, last_name), second_last_name = ?, curp = ?, birth_date = ?, email = ?,
+      `UPDATE students SET first_name = COALESCE(?, first_name),
+       last_name = COALESCE(?, last_name), second_last_name = ?, curp = ?, birth_date = ?,
        phone = ?, emergency_contact = ?, address = ?, notes = ?, status_id = COALESCE(?, status_id),
        is_active = COALESCE(?, is_active), updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      body.studentNumber ? cleanText(body.studentNumber, 40) : null,
       body.firstName ? cleanText(body.firstName, 100) : null,
       body.lastName ? cleanText(body.lastName, 100) : null,
       optionalText(body.secondLastName, 100),
       optionalText(body.curp, 30),
       optionalText(body.birthDate, 20),
-      optionalText(body.email, 180),
       optionalText(body.phone, 40),
       optionalText(body.emergencyContact, 180),
       optionalText(body.address, 300),
@@ -190,13 +228,35 @@ studentsRouter.patch("/:id", requirePermission("students.manage"), (req: Authent
       id
     );
     if (body.programId && body.shiftId && body.groupId && body.cycleId) {
+      const currentEnrollment = get<{ plan_id: number | null }>(
+        "SELECT plan_id FROM enrollments WHERE student_id = ? AND is_active = 1",
+        id
+      );
+      const planId = body.planId ? asId(body.planId, "Plan académico") : currentEnrollment?.plan_id;
+      if (!planId) throw new ApiError(400, "Selecciona el plan académico del alumno.");
+      const currentStudent = get<{ first_name: string; last_name: string; second_last_name: string | null }>(
+        "SELECT first_name, last_name, second_last_name FROM students WHERE id = ?",
+        id
+      )!;
+      generateStudentIdentity({
+        firstName: currentStudent.first_name,
+        lastName: currentStudent.last_name,
+        secondLastName: currentStudent.second_last_name,
+        programId: asId(body.programId, "Programa"),
+        shiftId: asId(body.shiftId, "Turno"),
+        groupId: asId(body.groupId, "Grupo"),
+        cycleId: asId(body.cycleId, "Ciclo"),
+        planId
+      });
       run("UPDATE enrollments SET is_active = 0 WHERE student_id = ? AND is_active = 1", id);
       run(
-        `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, period_id)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, period_id, plan_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(student_id, cycle_id) DO UPDATE SET program_id = excluded.program_id,
-         shift_id = excluded.shift_id, group_id = excluded.group_id, period_id = excluded.period_id, is_active = 1`,
-        id, Number(body.programId), Number(body.shiftId), Number(body.groupId), Number(body.cycleId), body.periodId ? Number(body.periodId) : null
+         shift_id = excluded.shift_id, group_id = excluded.group_id, period_id = excluded.period_id,
+         plan_id = excluded.plan_id, is_active = 1`,
+        id, Number(body.programId), Number(body.shiftId), Number(body.groupId), Number(body.cycleId),
+        body.periodId ? Number(body.periodId) : null, planId
       );
       const enrollment = get<{ id: number }>(
         "SELECT id FROM enrollments WHERE student_id = ? AND cycle_id = ? AND is_active = 1",
@@ -205,6 +265,19 @@ studentsRouter.patch("/:id", requirePermission("students.manage"), (req: Authent
       );
       if (enrollment) syncEnrollmentGroupSubjects(enrollment.id);
     }
+    const updatedStudent = get<{
+      student_number: string;
+      first_name: string;
+      last_name: string;
+      second_last_name: string | null;
+    }>("SELECT student_number, first_name, last_name, second_last_name FROM students WHERE id = ?", id)!;
+    provisionStudentAccount({
+      studentId: id,
+      studentNumber: updatedStudent.student_number,
+      firstName: updatedStudent.first_name,
+      lastName: updatedStudent.last_name,
+      secondLastName: updatedStudent.second_last_name
+    });
   });
   logActivity(req, "update", "students", id, body);
   res.json(get(`${studentSelect("st.id = ?")}`, id));
@@ -212,7 +285,29 @@ studentsRouter.patch("/:id", requirePermission("students.manage"), (req: Authent
 
 studentsRouter.post("/:id/toggle", requirePermission("students.manage"), (req: AuthenticatedRequest, res) => {
   const id = asId(req.params.id, "Alumno");
-  run("UPDATE students SET is_active = CASE is_active WHEN 1 THEN 0 ELSE 1 END, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id);
+  transaction(() => {
+    run("UPDATE students SET is_active = CASE is_active WHEN 1 THEN 0 ELSE 1 END, updated_at = CURRENT_TIMESTAMP WHERE id = ?", id);
+    const updated = get<{
+      is_active: number;
+      student_number: string;
+      first_name: string;
+      last_name: string;
+      second_last_name: string | null;
+    }>("SELECT is_active, student_number, first_name, last_name, second_last_name FROM students WHERE id = ?", id);
+    if (!updated) throw new ApiError(404, "No se encontró el alumno.");
+    if (updated.is_active) {
+      provisionStudentAccount({
+        studentId: id,
+        studentNumber: updated.student_number,
+        firstName: updated.first_name,
+        lastName: updated.last_name,
+        secondLastName: updated.second_last_name
+      });
+    } else {
+      run("UPDATE users SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE student_id = ?", id);
+    }
+    return updated;
+  });
   logActivity(req, "toggle-active", "students", id);
   res.json(get(`${studentSelect("st.id = ?")}`, id));
 });
@@ -246,14 +341,13 @@ studentsRouter.delete("/:id/permanent", requirePermission("students.manage"), (r
 
 studentsRouter.get("/template/import.xlsx", requirePermission("students.import"), (_req, res) => {
   sendWorkbook(res, "plantilla-alumnos.xlsx", "Alumnos", [{
-    "Matrícula": "AN26007",
     "Nombre(s)": "Andrea",
     "Apellido paterno": "López",
     "Apellido materno": "Morales",
     "CURP": "",
-    "Correo": "andrea.lopez@example.com",
     "Teléfono": "",
     "Programa": "Bachillerato General",
+    "Plan académico": "Bachillerato General - Plan 2026",
     "Turno": "Matutino",
     "Grupo": "1A",
     "Ciclo": "2026-2027",
@@ -270,9 +364,10 @@ studentsRouter.post("/import/preview", requirePermission("students.import"), upl
 
   const valid: StudentImportRow[] = [];
   const errors: Array<{ row: number; message: string }> = [];
+  const studentNumbers = new Set<string>();
   rows.forEach((source, index) => {
     const rowNumber = index + 2;
-    const studentNumber = value(source, "Matrícula", "Matricula", "student_number");
+    const suppliedStudentNumber = value(source, "Matrícula", "Matricula", "student_number");
     const firstName = value(source, "Nombre(s)", "Nombre", "first_name");
     const lastName = value(source, "Apellido paterno", "last_name");
     const programName = value(source, "Programa", "Programa de estudios");
@@ -281,7 +376,7 @@ studentsRouter.post("/import/preview", requirePermission("students.import"), upl
     const cycleName = value(source, "Ciclo", "Ciclo escolar");
     const statusName = value(source, "Estatus", "Estatus de alumno") || "Activo";
     const missing = [
-      [studentNumber, "matrícula"], [firstName, "nombre"], [lastName, "apellido paterno"],
+      [firstName, "nombre"], [lastName, "apellido paterno"],
       [programName, "programa"], [shiftName, "turno"], [groupName, "grupo"], [cycleName, "ciclo"]
     ].filter(([item]) => !item).map(([, label]) => label);
     if (missing.length) {
@@ -292,6 +387,20 @@ studentsRouter.post("/import/preview", requirePermission("students.import"), upl
     const shift = get<{ id: number }>("SELECT id FROM shifts WHERE name = ? AND is_active = 1", shiftName);
     const cycle = get<{ id: number }>("SELECT id FROM school_cycles WHERE name = ? AND is_active = 1", cycleName);
     const status = get<{ id: number }>("SELECT id FROM student_statuses WHERE name = ? AND is_active = 1", statusName);
+    const planName = value(source, "Plan académico", "Plan academico", "Plan");
+    const plan = program
+      ? planName
+        ? get<{ id: number }>(
+            `SELECT id FROM academic_plans
+             WHERE program_id = ? AND is_active = 1 AND (name = ? OR code = ? OR matriculation_code = ?)
+             ORDER BY id DESC LIMIT 1`,
+            program.id, planName, planName.toUpperCase(), planName.toUpperCase()
+          )
+        : get<{ id: number }>(
+            "SELECT id FROM academic_plans WHERE program_id = ? AND is_active = 1 ORDER BY id DESC LIMIT 1",
+            program.id
+          )
+      : undefined;
     const group = program && shift && cycle
       ? get<{ id: number }>("SELECT id FROM groups WHERE name = ? AND program_id = ? AND shift_id = ? AND cycle_id = ? AND is_active = 1", groupName, program.id, shift.id, cycle.id)
       : undefined;
@@ -301,26 +410,54 @@ studentsRouter.post("/import/preview", requirePermission("students.import"), upl
       : undefined;
     const invalid = [
       [program, `programa "${programName}"`], [shift, `turno "${shiftName}"`], [cycle, `ciclo "${cycleName}"`],
-      [group, `grupo "${groupName}"`], [status, `estatus "${statusName}"`]
+      [group, `grupo "${groupName}"`], [plan, planName ? `plan "${planName}"` : "plan académico activo"],
+      [status, `estatus "${statusName}"`]
     ].filter(([item]) => !item).map(([, label]) => label);
     if (periodName && !period) invalid.push(`periodo "${periodName}"`);
     if (invalid.length) {
       errors.push({ row: rowNumber, message: `No existe o está inactivo: ${invalid.join(", ")}.` });
       return;
     }
+    const secondLastName = value(source, "Apellido materno", "second_last_name");
+    let identity: ReturnType<typeof generateStudentIdentity>;
+    try {
+      identity = generateStudentIdentity({
+        firstName,
+        lastName,
+        secondLastName,
+        programId: program!.id,
+        shiftId: shift!.id,
+        groupId: group!.id,
+        cycleId: cycle!.id,
+        planId: plan!.id
+      });
+    } catch (error) {
+      errors.push({ row: rowNumber, message: error instanceof Error ? error.message : "No fue posible generar la matrícula." });
+      return;
+    }
+    const suppliedExisting = suppliedStudentNumber
+      ? get<{ id: number; student_number: string }>("SELECT id, student_number FROM students WHERE student_number = ?", suppliedStudentNumber)
+      : undefined;
+    const studentNumber = suppliedExisting?.student_number ?? identity.studentNumber;
+    if (studentNumbers.has(studentNumber)) {
+      errors.push({ row: rowNumber, message: `La matrícula automática ${studentNumber} está repetida dentro del archivo.` });
+      return;
+    }
+    studentNumbers.add(studentNumber);
     valid.push({
       row: rowNumber,
       studentNumber,
       firstName,
       lastName,
-      secondLastName: value(source, "Apellido materno", "second_last_name"),
+      secondLastName,
       curp: value(source, "CURP"),
-      email: value(source, "Correo", "Email"),
+      email: identity.email,
       phone: value(source, "Teléfono", "Telefono"),
       programId: program!.id,
       shiftId: shift!.id,
       groupId: group!.id,
       cycleId: cycle!.id,
+      planId: plan!.id,
       periodId: period?.id ?? null,
       statusId: status!.id,
       exists: Boolean(get("SELECT id FROM students WHERE student_number = ?", studentNumber))
@@ -344,10 +481,25 @@ studentsRouter.post("/import/apply", requirePermission("students.import"), (req:
   let created = 0;
   let updated = 0;
   let ignored = 0;
+  let accountsCreated = 0;
   transaction(() => {
     preview.valid.forEach((item) => {
       const existing = get<{ id: number }>("SELECT id FROM students WHERE student_number = ?", item.studentNumber);
       if (existing && !updateExisting) {
+        const currentStudent = get<{
+          student_number: string;
+          first_name: string;
+          last_name: string;
+          second_last_name: string | null;
+        }>("SELECT student_number, first_name, last_name, second_last_name FROM students WHERE id = ?", existing.id)!;
+        const access = provisionStudentAccount({
+          studentId: existing.id,
+          studentNumber: currentStudent.student_number,
+          firstName: currentStudent.first_name,
+          lastName: currentStudent.last_name,
+          secondLastName: currentStudent.second_last_name
+        });
+        if (access.created) accountsCreated += 1;
         ignored++;
         return;
       }
@@ -355,8 +507,8 @@ studentsRouter.post("/import/apply", requirePermission("students.import"), (req:
       if (existing) {
         run(
           `UPDATE students SET first_name = ?, last_name = ?, second_last_name = ?, curp = COALESCE(?, curp),
-           email = ?, phone = ?, status_id = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-          item.firstName, item.lastName, optionalText(item.secondLastName), optionalText(item.curp), optionalText(item.email),
+           phone = ?, status_id = ?, is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          item.firstName, item.lastName, optionalText(item.secondLastName), optionalText(item.curp),
           optionalText(item.phone), item.statusId, existing.id
         );
         updated++;
@@ -371,11 +523,12 @@ studentsRouter.post("/import/apply", requirePermission("students.import"), (req:
         created++;
       }
       run(
-        `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, period_id)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, period_id, plan_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(student_id, cycle_id) DO UPDATE SET program_id = excluded.program_id,
-         shift_id = excluded.shift_id, group_id = excluded.group_id, period_id = excluded.period_id, is_active = 1`,
-        studentId!, item.programId, item.shiftId, item.groupId, item.cycleId, item.periodId
+         shift_id = excluded.shift_id, group_id = excluded.group_id, period_id = excluded.period_id,
+         plan_id = excluded.plan_id, is_active = 1`,
+        studentId!, item.programId, item.shiftId, item.groupId, item.cycleId, item.periodId, item.planId
       );
       const enrollment = get<{ id: number }>(
         "SELECT id FROM enrollments WHERE student_id = ? AND cycle_id = ? AND is_active = 1",
@@ -383,11 +536,26 @@ studentsRouter.post("/import/apply", requirePermission("students.import"), (req:
         item.cycleId
       );
       if (enrollment) syncEnrollmentGroupSubjects(enrollment.id);
+      const access = provisionStudentAccount({
+        studentId: studentId!,
+        studentNumber: item.studentNumber,
+        firstName: item.firstName,
+        lastName: item.lastName,
+        secondLastName: item.secondLastName
+      });
+      if (access.created) accountsCreated += 1;
     });
   });
   previews.delete(String(req.body.previewId));
-  logActivity(req, "apply-import", "students", String(req.body.previewId), { created, updated, ignored });
-  res.json({ message: "Importación aplicada correctamente.", created, updated, ignored, errors: preview.errors.length });
+  logActivity(req, "apply-import", "students", String(req.body.previewId), { created, updated, ignored, accountsCreated });
+  res.json({
+    message: "Importación aplicada correctamente. Los accesos institucionales quedaron vinculados automáticamente.",
+    created,
+    updated,
+    ignored,
+    accountsCreated,
+    errors: preview.errors.length
+  });
 });
 
 studentsRouter.get("/export/file", requirePermission("students.export"), (req, res) => {

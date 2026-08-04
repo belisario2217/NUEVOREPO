@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
+import { deriveMatriculationCode, normalizeMatriculationCode } from "../services/student-identity.js";
 import { ApiError, asId, asNumber, cleanText, optionalText } from "../utils.js";
 
 export const plansRouter = Router();
@@ -48,11 +49,12 @@ plansRouter.get("/:id", requirePermission("catalogs.view"), (req, res) => {
 plansRouter.post("/", requirePermission("catalogs.manage"), (req: AuthenticatedRequest, res) => {
   const programId = asId(req.body.programId, "Programa");
   const code = cleanText(req.body.code, 60).toUpperCase();
+  const matriculationCode = normalizeMatriculationCode(req.body.matriculationCode) || deriveMatriculationCode(code);
   const name = cleanText(req.body.name, 180);
   const version = cleanText(req.body.version, 60);
   const tuitionAmount = Math.max(0, asNumber(req.body.tuitionAmount || 0, "Colegiatura"));
   const subjects = Array.isArray(req.body.subjects) ? req.body.subjects : [];
-  if (!code || !name || !version) throw new ApiError(400, "Clave, nombre y versión son obligatorios.");
+  if (!code || !matriculationCode || !name || !version) throw new ApiError(400, "Clave, código para matrícula, nombre y versión son obligatorios.");
   if (!subjects.length) throw new ApiError(400, "Agrega al menos una asignatura al plan.");
 
   const normalized: NormalizedSubject[] = subjects.map((item: any, index: number) => {
@@ -73,10 +75,11 @@ plansRouter.post("/", requirePermission("catalogs.manage"), (req: AuthenticatedR
 
   const planId = transaction(() => {
     const inserted = run(
-      `INSERT INTO academic_plans(program_id, code, name, version, description, tuition_amount)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO academic_plans(program_id, code, matriculation_code, name, version, description, tuition_amount)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       programId,
       code,
+      matriculationCode,
       name,
       version,
       optionalText(req.body.description, 1000),
@@ -113,7 +116,7 @@ plansRouter.post("/", requirePermission("catalogs.manage"), (req: AuthenticatedR
     }
     return id;
   });
-  logActivity(req, "create", "academic_plans", planId, { code, subjectCount: normalized.length, tuitionAmount });
+  logActivity(req, "create", "academic_plans", planId, { code, matriculationCode, subjectCount: normalized.length, tuitionAmount });
   res.status(201).json(get(`${planSelect("ap.id = ?")}`, planId));
 });
 
@@ -122,11 +125,12 @@ plansRouter.put("/:id", requirePermission("catalogs.manage"), (req: Authenticate
   if (!get("SELECT id FROM academic_plans WHERE id = ?", id)) throw new ApiError(404, "No se encontró el plan académico.");
   const programId = asId(req.body.programId, "Programa");
   const code = cleanText(req.body.code, 60).toUpperCase();
+  const matriculationCode = normalizeMatriculationCode(req.body.matriculationCode) || deriveMatriculationCode(code);
   const name = cleanText(req.body.name, 180);
   const version = cleanText(req.body.version, 60);
   const tuitionAmount = Math.max(0, asNumber(req.body.tuitionAmount || 0, "Colegiatura"));
   const subjects = Array.isArray(req.body.subjects) ? req.body.subjects : [];
-  if (!code || !name || !version) throw new ApiError(400, "Clave, nombre y versión son obligatorios.");
+  if (!code || !matriculationCode || !name || !version) throw new ApiError(400, "Clave, código para matrícula, nombre y versión son obligatorios.");
   if (!subjects.length) throw new ApiError(400, "Agrega al menos una asignatura al plan.");
   const normalized: NormalizedSubject[] = subjects.map((item: any, index: number) => {
     const subjectCode = cleanText(item.code, 60).toUpperCase();
@@ -146,10 +150,11 @@ plansRouter.put("/:id", requirePermission("catalogs.manage"), (req: Authenticate
 
   transaction(() => {
     run(
-      `UPDATE academic_plans SET program_id = ?, code = ?, name = ?, version = ?, description = ?, tuition_amount = ?,
+      `UPDATE academic_plans SET program_id = ?, code = ?, matriculation_code = ?, name = ?, version = ?, description = ?, tuition_amount = ?,
        updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       programId,
       code,
+      matriculationCode,
       name,
       version,
       optionalText(req.body.description, 1000),
@@ -194,7 +199,7 @@ plansRouter.put("/:id", requirePermission("catalogs.manage"), (req: Authenticate
     }
   });
   const updated = get(`${planSelect("ap.id = ?")}`, id);
-  logActivity(req, "update", "academic_plans", id, { code, subjectCount: normalized.length, tuitionAmount });
+  logActivity(req, "update", "academic_plans", id, { code, matriculationCode, subjectCount: normalized.length, tuitionAmount });
   res.json(updated);
 });
 

@@ -6,9 +6,11 @@ import { ApiError, asId, booleanInt, cleanText, optionalText } from "../utils.js
 type FieldDefinition = {
   name: string;
   label: string;
-  type?: "text" | "number" | "date" | "time" | "color" | "boolean";
+  type?: "text" | "number" | "date" | "time" | "color" | "boolean" | "select";
   required?: boolean;
   reference?: string;
+  options?: Array<{ value: string; label: string }>;
+  defaultValue?: string | number | boolean;
 };
 
 type CatalogDefinition = {
@@ -85,6 +87,18 @@ const definitions: Record<string, CatalogDefinition> = {
       { name: "program_id", label: "Programa", type: "number", reference: "programs", required: true },
       { name: "shift_id", label: "Turno", type: "number", reference: "shifts", required: true },
       { name: "cycle_id", label: "Ciclo", type: "number", reference: "cycles", required: true },
+      {
+        name: "study_modality",
+        label: "Modalidad de estudio",
+        type: "select",
+        required: true,
+        defaultValue: "escolarizado",
+        options: [
+          { value: "escolarizado", label: "Escolarizado (ESC)" },
+          { value: "semiescolarizado", label: "Semiescolarizado (SEM)" },
+          { value: "complementario", label: "Complementario (COM)" }
+        ]
+      },
       { name: "capacity", label: "Capacidad", type: "number" }
     ],
     listSql: `SELECT g.*, p.name AS program_name, s.name AS shift_name, c.name AS cycle_name
@@ -288,6 +302,9 @@ catalogsRouter.post("/:type", requirePermission("catalogs.manage"), (req: Authen
   const values = fields.map((field) => {
     if (field.type === "boolean") return booleanInt(req.body[field.name]);
     if (field.type === "number") return Number(req.body[field.name]);
+    if (field.options && !field.options.some((option) => option.value === req.body[field.name])) {
+      throw new ApiError(400, `${field.label} no es válida.`);
+    }
     return optionalText(req.body[field.name], 500);
   });
   const result = run(
@@ -308,6 +325,9 @@ catalogsRouter.patch("/:type/:id", requirePermission("catalogs.manage"), (req: A
   const values = fields.map((field) => {
     if (field.type === "boolean") return booleanInt(req.body[field.name]);
     if (field.type === "number") return Number(req.body[field.name]);
+    if (field.options && !field.options.some((option) => option.value === req.body[field.name])) {
+      throw new ApiError(400, `${field.label} no es válida.`);
+    }
     return optionalText(req.body[field.name], 500);
   });
   run(
