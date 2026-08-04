@@ -37,7 +37,7 @@ type CurricularDraft = {
 
 const reports = [
   { type: "students", title: "Lista de alumnos", description: "Directorio por grupo con programa, turno y estatus.", icon: UsersRound },
-  { type: "attendance", title: "Lista de asistencia", description: "Formato basico imprimible para control diario.", icon: ClipboardCheck },
+  { type: "attendance", title: "Lista de asistencia", description: "Plantilla institucional por grupo, materia y docente, lista para imprimir.", icon: ClipboardCheck },
   { type: "gradebook", title: "Concentrado de calificaciones", description: "Resultados por alumno, materia y periodo.", icon: Sheet },
   { type: "subjects", title: "Reporte por materia", description: "Promedio, evaluaciones e indice de reprobacion.", icon: FileText },
   { type: "teachers", title: "Reporte por docente", description: "Materias, grupos asignados y promedio general.", icon: GraduationCap },
@@ -62,6 +62,11 @@ export function ReportsPage() {
   const [initialStatus, setInitialStatus] = useState<CurricularSubject["status"]>("in_progress");
   const [busy, setBusy] = useState(false);
   const [savingAll, setSavingAll] = useState(false);
+  const [attendanceMode, setAttendanceMode] = useState("escolarizado");
+  const [attendanceMonth, setAttendanceMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
 
   function draftFromRow(row: CurricularSubject): CurricularDraft {
     return {
@@ -138,6 +143,10 @@ export function ReportsPage() {
   function reportPath(type: string, format: string) {
     const query = new URLSearchParams({ format });
     if (groupId) query.set("groupId", groupId);
+    if (type === "attendance") {
+      query.set("mode", attendanceMode);
+      query.set("month", attendanceMonth);
+    }
     return `/reports/data/${type}?${query}`;
   }
 
@@ -305,7 +314,13 @@ export function ReportsPage() {
           {reports.map((report) => (
             <article className="report-item" key={report.type}>
               <div className="report-item-icon"><report.icon size={23} /></div>
-              <div><h3>{report.title}</h3><p>{report.description}</p></div>
+              <div>
+                <h3>{report.title}</h3><p>{report.description}</p>
+                {report.type === "attendance" && <div className="attendance-report-options">
+                  <label>Modalidad<select value={attendanceMode} onChange={(event) => setAttendanceMode(event.target.value)}><option value="escolarizado">Escolarizado</option><option value="semiescolarizado">Semiescolarizado</option><option value="complementario">Complementario</option></select></label>
+                  <label>Mes<input type="month" value={attendanceMonth} onChange={(event) => setAttendanceMonth(event.target.value)} /></label>
+                </div>}
+              </div>
               <div className="report-actions">
                 <button title="Abrir PDF" onClick={() => openDocument(reportPath(report.type, "pdf"))}><FileText size={17} /><span>PDF</span></button>
                 <button title="Descargar Excel" onClick={() => download(reportPath(report.type, "xlsx"), `${report.type}.xlsx`)}><FileSpreadsheet size={17} /><span>Excel</span></button>

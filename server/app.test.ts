@@ -712,4 +712,34 @@ describe("Aula Nova API", () => {
     expect(groupReport.status).toBe(200);
     expect(groupReport.body.length).toBeGreaterThan(1000);
   });
+
+  it("generates the institutional attendance list for every modality", async () => {
+    const groups = await request(app).get("/api/catalogs/groups").set("Authorization", `Bearer ${token}`);
+    const group = groups.body.records.find((item: any) => item.name === "1A");
+    const workbookResponse = await request(app)
+      .get(`/api/reports/data/attendance?format=xlsx&groupId=${group.id}&mode=semiescolarizado&month=2026-08`)
+      .set("Authorization", `Bearer ${token}`)
+      .buffer(true)
+      .parse(binaryParser);
+    expect(workbookResponse.status).toBe(200);
+    expect(workbookResponse.headers["content-type"]).toContain("spreadsheetml");
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(workbookResponse.body);
+    const sheet = workbook.worksheets[0];
+    expect(sheet.getCell("C2").value).toContain("CAMPUS FRONTERA");
+    expect(sheet.getCell("A5").value).toBe("LISTA DE ASISTENCIA");
+    expect(sheet.getCell("U7").value).toBe(group.name);
+    expect(sheet.getCell("F13").value).toBe("S");
+    expect(sheet.getCell("B14").value).toBeTruthy();
+    expect(sheet.pageSetup.orientation).toBe("landscape");
+    expect(sheet.pageSetup.printArea).toBe("A1:X37");
+
+    const complementaryPdf = await request(app)
+      .get(`/api/reports/data/attendance?format=pdf&groupId=${group.id}&mode=complementario&month=2026-08`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(complementaryPdf.status).toBe(200);
+    expect(complementaryPdf.headers["content-type"]).toContain("application/pdf");
+    expect(complementaryPdf.body.length).toBeGreaterThan(3_000);
+    expect(complementaryPdf.body.toString("latin1").match(/\/Type\s*\/Page\b/g)?.length).toBeGreaterThan(0);
+  });
 });

@@ -434,6 +434,9 @@ tbody tr:last-child td { border-bottom: 0; }
 .report-item-icon { width: 44px; height: 44px; display: grid; place-items: center; color: var(--blue); background: #e1f0f5; border-radius: 5px; }
 .report-item h3 { color: var(--navy); font-size: 13px; }
 .report-item p { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.attendance-report-options { display: grid; grid-template-columns: minmax(140px, 1fr) 130px; gap: 8px; margin-top: 10px; }
+.attendance-report-options label { color: var(--muted); font-size: 8px; font-weight: 700; text-transform: uppercase; }
+.attendance-report-options select, .attendance-report-options input { min-height: 31px; margin-top: 3px; padding: 4px 7px; font-size: 9px; text-transform: none; }
 .report-actions { grid-column: 1 / -1; display: flex; gap: 7px; }
 .report-actions button { min-height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 10px; color: #486581; background: #f4f7f9; border: 1px solid var(--line); border-radius: 4px; font-size: 10px; font-weight: 600; }
 .report-actions button:hover { color: var(--blue); background: #edf5f8; }

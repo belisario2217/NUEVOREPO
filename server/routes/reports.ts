@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
 import { createPdf, pdfTable, sendWorkbook } from "../services/files.js";
+import { sendAttendancePdf, sendAttendanceWorkbook } from "../services/attendance-list.js";
 import { syncGroupSubjects } from "../services/group-subjects.js";
 import { ApiError, asId, asNumber, cleanText, optionalText } from "../utils.js";
 
@@ -688,10 +689,18 @@ const reportDefinitions = {
   }
 } as const;
 
-reportsRouter.get("/data/:type", requirePermission("reports.view"), (req, res) => {
+reportsRouter.get("/data/:type", requirePermission("reports.view"), async (req, res) => {
   const definition = reportDefinitions[req.params.type as keyof typeof reportDefinitions];
   if (!definition) throw new ApiError(404, "El reporte solicitado no existe.");
   const groupId = req.query.groupId ? Number(req.query.groupId) : null;
+  if (req.params.type === "attendance") {
+    if (req.query.format === "xlsx") {
+      await sendAttendanceWorkbook(res, groupId, req.query.mode, req.query.month);
+      return;
+    }
+    sendAttendancePdf(res, groupId, req.query.mode, req.query.month);
+    return;
+  }
   const records = all<any>(definition.query, groupId, groupId);
   if (req.query.format === "xlsx") return sendWorkbook(res, `${req.params.type}.xlsx`, "Reporte", records);
   const doc = createPdf(res, `${req.params.type}.pdf`, { layout: "landscape" });
