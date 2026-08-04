@@ -155,8 +155,8 @@ export function seed() {
     const period = get<{ id: number }>("SELECT id FROM academic_periods ORDER BY sequence LIMIT 1")!;
     const curricularPeriod = get<{ id: number }>("SELECT id FROM curricular_periods WHERE sequence = 1")!;
 
-    run("INSERT INTO groups(name, program_id, shift_id, cycle_id, capacity) VALUES ('1A', ?, ?, ?, 32)", program.id, morning.id, cycle.id);
-    run("INSERT INTO groups(name, program_id, shift_id, cycle_id, capacity) VALUES ('1B', ?, ?, ?, 32)", program.id, morning.id, cycle.id);
+    run("INSERT INTO groups(name, program_id, shift_id, cycle_id, active_cycle_id, capacity) VALUES ('1A', ?, ?, ?, ?, 32)", program.id, morning.id, cycle.id, cycle.id);
+    run("INSERT INTO groups(name, program_id, shift_id, cycle_id, active_cycle_id, capacity) VALUES ('1B', ?, ?, ?, ?, 32)", program.id, morning.id, cycle.id, cycle.id);
     const groupA = get<{ id: number }>("SELECT id FROM groups WHERE name = '1A'")!;
 
     run("INSERT INTO grading_scales(name, min_score, max_score, passing_score, decimals, is_default) VALUES ('Escala 0 a 10', 0, 10, 6, 1, 1)");

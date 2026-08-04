@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   BarChart3, BookOpenCheck, ChevronLeft, ChevronRight, FileBarChart, GraduationCap,
-  LayoutDashboard, LogOut, Menu, Settings, ShieldCheck, SlidersHorizontal, UsersRound, X, BookCopy, CircleGauge, ReceiptText, Megaphone, TableProperties
+  LayoutDashboard, LogOut, Menu, Settings, ShieldCheck, SlidersHorizontal, UsersRound, X, BookCopy, CircleGauge, ReceiptText, Megaphone, TableProperties, School
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { api } from "../lib/api";
@@ -12,6 +12,7 @@ type Institution = { institution_name: string; logo_path: string | null; active_
 const navItems = [
   { to: "/", label: "Panel", icon: LayoutDashboard, permission: "dashboard.view" },
   { to: "/alumnos", label: "Alumnos", icon: GraduationCap, permission: "students.view" },
+  { to: "/grupos", label: "Administración de grupos", icon: School, permission: "students.view" },
   { to: "/calificaciones", label: "Calificaciones", icon: BookOpenCheck, permission: "grades.view" },
   { to: "/cobros", label: "Cobros", icon: ReceiptText, permission: "payments.view" },
   { to: "/colegiaturas-mensuales", label: "Colegiaturas mensuales", icon: TableProperties, permission: "tuition.manage" },
@@ -29,6 +30,7 @@ const navItems = [
 const titles: Record<string, string> = {
   "/": "Panel académico",
   "/alumnos": "Gestión de alumnos",
+  "/grupos": "Administración de grupos",
   "/calificaciones": "Captura de calificaciones",
   "/cobros": "Registro de cobros",
   "/colegiaturas-mensuales": "Colegiaturas mensuales",

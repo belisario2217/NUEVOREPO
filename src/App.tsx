@@ -19,6 +19,7 @@ const PaymentsPage = lazy(() => import("./pages/PaymentsPage").then((module) => 
 const TuitionGridPage = lazy(() => import("./pages/TuitionGridPage").then((module) => ({ default: module.TuitionGridPage })));
 const MessagesAdminPage = lazy(() => import("./pages/MessagesAdminPage").then((module) => ({ default: module.MessagesAdminPage })));
 const StudentMessagesPage = lazy(() => import("./pages/StudentMessagesPage").then((module) => ({ default: module.StudentMessagesPage })));
+const GroupManagementPage = lazy(() => import("./pages/GroupManagementPage").then((module) => ({ default: module.GroupManagementPage })));
 
 function HomePage() {
   const { user, can } = useAuth();
@@ -44,6 +45,7 @@ export function App() {
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/alumnos" element={<StudentsPage />} />
+              <Route path="/grupos" element={<GroupManagementPage />} />
               <Route path="/calificaciones" element={<GradesPage />} />
               <Route path="/analiticas" element={<AnalyticsPage />} />
               <Route path="/reportes" element={<ReportsPage />} />

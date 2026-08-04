@@ -640,6 +640,47 @@ describe("Aula Nova API", () => {
       .expect(204);
   });
 
+  it("administers a group's active cycle, plan and enrolled students", async () => {
+    const list = await request(app)
+      .get("/api/group-management")
+      .set("Authorization", `Bearer ${token}`);
+    expect(list.status).toBe(200);
+    const group = list.body.groups.find((item: any) => item.name === "1A");
+    const currentCycle = list.body.cycles.find((item: any) => item.name === "2026B - 2027A");
+    const otherCycle = list.body.cycles.find((item: any) => item.name === "2027B - 2028A");
+    const plan = list.body.plans.find((item: any) => item.name === "Plan con colegiatura");
+    expect(group.student_count).toBeGreaterThan(0);
+    expect(group.formation_cycle_name).toBe("2026B - 2027A");
+    expect(plan).toBeTruthy();
+
+    const detail = await request(app)
+      .get(`/api/group-management/${group.id}`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.students).toHaveLength(group.student_count);
+    expect(detail.body.students[0].student_number).toBeTruthy();
+
+    const contextOnly = await request(app)
+      .patch(`/api/group-management/${group.id}/context`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ activeCycleId: otherCycle.id, planId: plan.id, syncStudents: false });
+    expect(contextOnly.status).toBe(200);
+    expect(contextOnly.body.group.formation_cycle_name).toBe("2026B - 2027A");
+    expect(contextOnly.body.group.active_cycle_name).toBe("2027B - 2028A");
+    expect(contextOnly.body.group.mismatch_count).toBe(group.student_count);
+
+    const synchronized = await request(app)
+      .patch(`/api/group-management/${group.id}/context`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ activeCycleId: currentCycle.id, planId: plan.id, syncStudents: true });
+    expect(synchronized.status).toBe(200);
+    expect(synchronized.body.updatedStudents).toBe(group.student_count);
+    expect(synchronized.body.group.active_cycle_name).toBe("2026B - 2027A");
+    expect(synchronized.body.group.plan_name).toBe("Plan con colegiatura");
+    expect(synchronized.body.group.mismatch_count).toBe(0);
+    expect(synchronized.body.students.every((student: any) => student.context_matches === 1)).toBe(true);
+  });
+
   it("permanently deletes an unused subject", async () => {
     const programs = await request(app).get("/api/catalogs/programs").set("Authorization", `Bearer ${token}`);
     const subject = await request(app)

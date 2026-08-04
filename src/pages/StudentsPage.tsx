@@ -47,6 +47,8 @@ type Option = {
   program_id?: number;
   shift_id?: number;
   cycle_id?: number;
+  active_cycle_id?: number;
+  plan_id?: number;
   duration_periods?: number;
   sequence?: number;
   study_modality?: "escolarizado" | "semiescolarizado" | "complementario";
@@ -112,6 +114,8 @@ export function StudentsPage() {
         program_id: item.program_id,
         shift_id: item.shift_id,
         cycle_id: item.cycle_id,
+        active_cycle_id: item.active_cycle_id,
+        plan_id: item.plan_id,
         duration_periods: item.duration_periods,
         sequence: item.sequence,
         study_modality: item.study_modality
@@ -210,6 +214,7 @@ export function StudentsPage() {
     if (!group) return setForm({ ...form, groupId });
     const programId = String(group.program_id ?? form.programId);
     const selectedPlan = plans.find((plan) => String(plan.id) === form.planId);
+    const groupPlan = plans.find((plan) => plan.id === group.plan_id);
     const program = (options.programs ?? []).find((item) => String(item.id) === programId);
     const programName = normalizeAcademicLabel(program?.name);
     const planMatches = selectedPlan && (
@@ -222,7 +227,8 @@ export function StudentsPage() {
       groupId,
       programId,
       shiftId: String(group.shift_id ?? form.shiftId),
-      planId: planMatches ? form.planId : ""
+      cycleId: group.active_cycle_id ? String(group.active_cycle_id) : form.cycleId,
+      planId: groupPlan ? String(groupPlan.id) : planMatches ? form.planId : ""
     });
   }
 

@@ -19,6 +19,7 @@ import { plansRouter } from "./routes/plans.js";
 import { portalRouter } from "./routes/portal.js";
 import { paymentsRouter } from "./routes/payments.js";
 import { messagesRouter } from "./routes/messages.js";
+import { groupManagementRouter } from "./routes/group-management.js";
 import { ensureAllStudentAccounts } from "./services/student-account.js";
 
 ensureAllStudentAccounts();
@@ -49,6 +50,7 @@ app.use("/api/plans", authenticate, plansRouter);
 app.use("/api/portal", authenticate, portalRouter);
 app.use("/api/payments", authenticate, paymentsRouter);
 app.use("/api/messages", authenticate, messagesRouter);
+app.use("/api/group-management", authenticate, groupManagementRouter);
 
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(path.join(root, "dist")));
