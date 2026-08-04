@@ -146,6 +146,23 @@ describe("Aula Nova API", () => {
     expect(created.body.total_credits).toBe(10);
     expect(created.body.matriculation_code).toBe("PT");
 
+    const duplicate = await request(app)
+      .post("/api/plans")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        programId,
+        code: "PLAN-TEST-2026-DUP",
+        matriculationCode: "PTD",
+        name: "Plán automatizado",
+        version: " 2026 ",
+        assignExisting: false,
+        subjects: [
+          { code: "PLAN-DUP-01", name: "Materia duplicada", subjectType: "mandatory", credits: 5, recommendedPeriod: 1 }
+        ]
+      });
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.message).toContain("Ya existe el plan académico");
+
     const detail = await request(app).get(`/api/plans/${created.body.id}`).set("Authorization", `Bearer ${token}`);
     expect(detail.body.subjects).toHaveLength(2);
     expect(detail.body.subjects.map((subject: any) => subject.subject_type)).toEqual(expect.arrayContaining(["mandatory", "elective"]));
@@ -174,6 +191,18 @@ describe("Aula Nova API", () => {
       .set("Authorization", `Bearer ${token}`)
       .expect(204);
     await request(app).get(`/api/plans/${created.body.id}`).set("Authorization", `Bearer ${token}`).expect(404);
+  });
+
+  it("recognizes a plan attached to an equivalent duplicate program record", async () => {
+    const { planMatchesProgram } = await import("./services/student-identity.js");
+    expect(planMatchesProgram(
+      { program_id: 90, name: "Plan Enfermería 2026", program_name: "LICENCIATURA EN ENFERMERÍA IFOP" },
+      { id: 91, name: "Licenciatura en Enfermeria IFOP" }
+    )).toBe(true);
+    expect(planMatchesProgram(
+      { program_id: 90, name: "Licenciatura en Enfermería IFOP", program_name: "Licenciatura" },
+      { id: 91, name: "LICENCIATURA EN ENFERMERIA IFOP" }
+    )).toBe(true);
   });
 
   it("manages student tuition payments and exports account statements", async () => {

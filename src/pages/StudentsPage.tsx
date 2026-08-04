@@ -48,7 +48,7 @@ type Option = {
   cycle_id?: number;
   study_modality?: "escolarizado" | "semiescolarizado" | "complementario";
 };
-type PlanOption = { id: number; name: string; program_id: number; matriculation_code: string; is_active: number };
+type PlanOption = { id: number; name: string; program_id: number; program_name: string; matriculation_code: string; is_active: number };
 type Filters = { search: string; programId: string; shiftId: string; groupId: string; cycleId: string; statusId: string };
 const blankFilters: Filters = { search: "", programId: "", shiftId: "", groupId: "", cycleId: "", statusId: "" };
 const blankForm = {
@@ -61,6 +61,14 @@ const modalityLabels = {
   semiescolarizado: "Semiescolarizado (SEM)",
   complementario: "Complementario (COM)"
 };
+
+function normalizeAcademicLabel(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
 
 export function StudentsPage() {
   const { can } = useAuth();
@@ -120,14 +128,28 @@ export function StudentsPage() {
     return groups.filter((group) => String(group.program_id ?? "") === form.programId);
   }, [options.groups, form.programId]);
 
-  const formPlans = useMemo(() => plans
-    .filter((plan) => !form.programId || String(plan.program_id) === form.programId)
-    .map((plan) => ({ id: plan.id, name: `${plan.name} (${plan.matriculation_code})` })), [plans, form.programId]);
+  const formPlans = useMemo(() => {
+    const program = (options.programs ?? []).find((item) => String(item.id) === form.programId);
+    const programName = normalizeAcademicLabel(program?.name);
+    return plans
+      .filter((plan) => !form.programId
+        || String(plan.program_id) === form.programId
+        || (programName && normalizeAcademicLabel(plan.program_name) === programName)
+        || (programName && normalizeAcademicLabel(plan.name) === programName))
+      .map((plan) => ({ id: plan.id, name: `${plan.name} (${plan.matriculation_code})` }));
+  }, [plans, options.programs, form.programId]);
 
   const selectedFormGroup = useMemo(
     () => (options.groups ?? []).find((group) => String(group.id) === form.groupId),
     [options.groups, form.groupId]
   );
+
+  useEffect(() => {
+    if (!formOpen || !form.programId || form.planId || formPlans.length !== 1) return;
+    setForm((current) => current.programId === form.programId && !current.planId
+      ? { ...current, planId: String(formPlans[0].id) }
+      : current);
+  }, [formOpen, form.programId, form.planId, formPlans]);
 
   function selectProgram(programId: string) {
     const selectedGroup = (options.groups ?? []).find((group) => String(group.id) === filters.groupId);
@@ -147,11 +169,18 @@ export function StudentsPage() {
   function selectFormProgram(programId: string) {
     const group = (options.groups ?? []).find((item) => String(item.id) === form.groupId);
     const plan = plans.find((item) => String(item.id) === form.planId);
+    const program = (options.programs ?? []).find((item) => String(item.id) === programId);
+    const programName = normalizeAcademicLabel(program?.name);
+    const planMatches = plan && (
+      String(plan.program_id) === programId
+      || normalizeAcademicLabel(plan.program_name) === programName
+      || normalizeAcademicLabel(plan.name) === programName
+    );
     setForm({
       ...form,
       programId,
       groupId: group && String(group.program_id) === programId ? form.groupId : "",
-      planId: plan && String(plan.program_id) === programId ? form.planId : ""
+      planId: planMatches ? form.planId : ""
     });
   }
 
@@ -160,13 +189,20 @@ export function StudentsPage() {
     if (!group) return setForm({ ...form, groupId });
     const programId = String(group.program_id ?? form.programId);
     const selectedPlan = plans.find((plan) => String(plan.id) === form.planId);
+    const program = (options.programs ?? []).find((item) => String(item.id) === programId);
+    const programName = normalizeAcademicLabel(program?.name);
+    const planMatches = selectedPlan && (
+      String(selectedPlan.program_id) === programId
+      || normalizeAcademicLabel(selectedPlan.program_name) === programName
+      || normalizeAcademicLabel(selectedPlan.name) === programName
+    );
     setForm({
       ...form,
       groupId,
       programId,
       shiftId: String(group.shift_id ?? form.shiftId),
       cycleId: String(group.cycle_id ?? form.cycleId),
-      planId: selectedPlan && String(selectedPlan.program_id) === programId ? form.planId : ""
+      planId: planMatches ? form.planId : ""
     });
   }
 

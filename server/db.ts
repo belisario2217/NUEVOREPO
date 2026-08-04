@@ -275,19 +275,6 @@ function ensureEnhancementData() {
     );
 
     run(
-      `INSERT OR IGNORE INTO academic_plans(program_id, code, name, version, description)
-       SELECT id, code || '-PLAN-2026', name || ' - Plan 2026', '2026',
-              'Plan inicial generado a partir de las materias existentes'
-       FROM programs
-       WHERE EXISTS (SELECT 1 FROM subjects s WHERE s.program_id = programs.id)
-       AND NOT EXISTS (SELECT 1 FROM academic_plans ap WHERE ap.program_id = programs.id)`
-    );
-    run(
-      `INSERT OR IGNORE INTO plan_subjects(plan_id, subject_id, subject_type, credits, recommended_period)
-       SELECT ap.id, s.id, 'mandatory', CASE WHEN s.credits > 0 THEN s.credits ELSE 1 END, 1
-       FROM subjects s JOIN academic_plans ap ON ap.program_id = s.program_id`
-    );
-    run(
       `UPDATE enrollments SET plan_id = (
          SELECT ap.id FROM academic_plans ap
          WHERE ap.program_id = enrollments.program_id AND ap.is_active = 1

@@ -23,8 +23,15 @@ type GroupContext = {
 
 type PlanContext = {
   program_id: number;
+  name: string;
+  program_name: string;
   code: string;
   matriculation_code: string;
+};
+
+type ProgramContext = {
+  id: number;
+  name: string;
 };
 
 const modalityCodes: Record<StudyModality, string> = {
@@ -38,6 +45,20 @@ function normalized(value: unknown) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase();
+}
+
+export function normalizeAcademicLabel(value: unknown) {
+  return normalized(value).replace(/[^A-Z0-9]/g, "");
+}
+
+export function planMatchesProgram(
+  plan: { program_id: number; name: string; program_name: string },
+  program: { id: number; name: string }
+) {
+  const programName = normalizeAcademicLabel(program.name);
+  return plan.program_id === program.id
+    || normalizeAcademicLabel(plan.program_name) === programName
+    || normalizeAcademicLabel(plan.name) === programName;
 }
 
 export function normalizeMatriculationCode(value: unknown) {
@@ -85,13 +106,20 @@ export function generateStudentIdentity(input: IdentityInput) {
   );
   if (!cycle) throw new ApiError(400, "El ciclo escolar seleccionado no existe o esta inactivo.");
 
+  const program = get<ProgramContext>(
+    "SELECT id, name FROM programs WHERE id = ? AND is_active = 1",
+    input.programId
+  );
+  if (!program) throw new ApiError(400, "El programa seleccionado no existe o esta inactivo.");
+
   const plan = get<PlanContext>(
-    `SELECT program_id, code, matriculation_code
-     FROM academic_plans WHERE id = ? AND is_active = 1`,
+    `SELECT ap.program_id, ap.name, p.name AS program_name, ap.code, ap.matriculation_code
+     FROM academic_plans ap JOIN programs p ON p.id = ap.program_id
+     WHERE ap.id = ? AND ap.is_active = 1`,
     input.planId
   );
   if (!plan) throw new ApiError(400, "El plan academico seleccionado no existe o esta inactivo.");
-  if (plan.program_id !== input.programId) {
+  if (!planMatchesProgram(plan, program)) {
     throw new ApiError(400, "El plan academico no corresponde al programa seleccionado.");
   }
 

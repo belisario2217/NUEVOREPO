@@ -1,7 +1,11 @@
 import { Router } from "express";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
-import { deriveMatriculationCode, normalizeMatriculationCode } from "../services/student-identity.js";
+import {
+  deriveMatriculationCode,
+  normalizeAcademicLabel,
+  normalizeMatriculationCode
+} from "../services/student-identity.js";
 import { ApiError, asId, asNumber, cleanText, optionalText } from "../utils.js";
 
 export const plansRouter = Router();
@@ -26,6 +30,36 @@ function planSelect(where = "1 = 1") {
     LEFT JOIN plan_subjects ps ON ps.plan_id = ap.id
     WHERE ${where}
     GROUP BY ap.id`;
+}
+
+function assertUniquePlan(programId: number, code: string, name: string, version: string, excludedId?: number) {
+  const program = get<{ id: number; name: string }>("SELECT id, name FROM programs WHERE id = ?", programId);
+  if (!program) throw new ApiError(400, "El programa seleccionado no existe.");
+
+  const normalizedProgram = normalizeAcademicLabel(program.name);
+  const normalizedName = normalizeAcademicLabel(name);
+  const normalizedVersion = normalizeAcademicLabel(version);
+  const existing = all<{
+    id: number;
+    code: string;
+    name: string;
+    version: string;
+    program_id: number;
+    program_name: string;
+  }>(`SELECT ap.id, ap.code, ap.name, ap.version, ap.program_id, p.name AS program_name
+      FROM academic_plans ap JOIN programs p ON p.id = ap.program_id`);
+
+  const duplicate = existing.find((plan) => plan.id !== excludedId && (
+    plan.code.trim().toUpperCase() === code
+    || (
+      normalizeAcademicLabel(plan.name) === normalizedName
+      && normalizeAcademicLabel(plan.version) === normalizedVersion
+      && (plan.program_id === programId || normalizeAcademicLabel(plan.program_name) === normalizedProgram)
+    )
+  ));
+  if (duplicate) {
+    throw new ApiError(409, `Ya existe el plan académico "${duplicate.name}" para este programa y versión. Edítalo en lugar de volver a crearlo.`);
+  }
 }
 
 plansRouter.get("/", requirePermission("catalogs.view"), (_req, res) => {
@@ -56,6 +90,7 @@ plansRouter.post("/", requirePermission("catalogs.manage"), (req: AuthenticatedR
   const subjects = Array.isArray(req.body.subjects) ? req.body.subjects : [];
   if (!code || !matriculationCode || !name || !version) throw new ApiError(400, "Clave, código para matrícula, nombre y versión son obligatorios.");
   if (!subjects.length) throw new ApiError(400, "Agrega al menos una asignatura al plan.");
+  assertUniquePlan(programId, code, name, version);
 
   const normalized: NormalizedSubject[] = subjects.map((item: any, index: number) => {
     const subjectCode = cleanText(item.code, 60).toUpperCase();
@@ -132,6 +167,7 @@ plansRouter.put("/:id", requirePermission("catalogs.manage"), (req: Authenticate
   const subjects = Array.isArray(req.body.subjects) ? req.body.subjects : [];
   if (!code || !matriculationCode || !name || !version) throw new ApiError(400, "Clave, código para matrícula, nombre y versión son obligatorios.");
   if (!subjects.length) throw new ApiError(400, "Agrega al menos una asignatura al plan.");
+  assertUniquePlan(programId, code, name, version, id);
   const normalized: NormalizedSubject[] = subjects.map((item: any, index: number) => {
     const subjectCode = cleanText(item.code, 60).toUpperCase();
     const subjectName = cleanText(item.name, 180);
