@@ -2,7 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
-import { resetStudentPassword, studentInstitutionalEmail } from "../services/student-account.js";
+import { resetStudentPassword, studentCredentialStatus, studentInstitutionalEmail } from "../services/student-account.js";
 import { ApiError, asId, cleanText, optionalText } from "../utils.js";
 
 export const usersRouter = Router();
@@ -77,17 +77,32 @@ usersRouter.patch("/:id", requirePermission("users.manage"), async (req: Authent
   run(
     `UPDATE users SET full_name = COALESCE(?, full_name), email = COALESCE(?, email),
      role_id = COALESCE(?, role_id), is_active = COALESCE(?, is_active),
-     password_hash = COALESCE(?, password_hash), student_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+     password_hash = COALESCE(?, password_hash),
+     password_must_change = CASE WHEN ? IS NULL THEN password_must_change ELSE 0 END,
+     temporary_password_name = CASE WHEN ? IS NULL THEN temporary_password_name ELSE NULL END,
+     student_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
     linkedName ?? (req.body.fullName ? cleanText(req.body.fullName, 180) : null),
     linkedEmail ?? (req.body.email ? cleanText(req.body.email, 180).toLowerCase() : null),
     roleId,
     req.body.isActive === undefined ? null : req.body.isActive ? 1 : 0,
+    passwordHash,
+    passwordHash,
     passwordHash,
     studentId,
     id
   );
   logActivity(req, "update", "users", id, { ...req.body, password: req.body.password ? "[updated]" : undefined });
   res.json({ message: "Usuario actualizado." });
+});
+
+usersRouter.get("/:id/student-credentials", requirePermission("users.manage"), (req: AuthenticatedRequest, res) => {
+  const id = asId(req.params.id, "Usuario");
+  const credentials = studentCredentialStatus(id);
+  logActivity(req, "view-student-credentials", "users", id, {
+    studentNumber: credentials.studentNumber,
+    passwordStatus: credentials.passwordStatus
+  });
+  res.json(credentials);
 });
 
 usersRouter.post("/:id/reset-student-password", requirePermission("users.manage"), (req: AuthenticatedRequest, res) => {

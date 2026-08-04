@@ -51,7 +51,7 @@ authRouter.post("/change-password", authenticate, async (req: AuthenticatedReque
     throw new ApiError(400, "La contraseña actual es incorrecta.");
   }
   run(
-    `UPDATE users SET password_hash = ?, password_must_change = 0,
+    `UPDATE users SET password_hash = ?, password_must_change = 0, temporary_password_name = NULL,
      updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
     await bcrypt.hash(newPassword, 12),
     req.user!.id

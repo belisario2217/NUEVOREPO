@@ -457,6 +457,14 @@ describe("Aula Nova API", () => {
       email: "0826cmjleesc@alumnoifop.edu",
       temporaryPassword: "1234juan"
     });
+    const users = await request(app).get("/api/users").set("Authorization", `Bearer ${token}`);
+    const studentUser = users.body.find((user: any) => user.student_id === created.body.id);
+    const temporaryCredentials = await request(app)
+      .get(`/api/users/${studentUser.id}/student-credentials`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(temporaryCredentials.status).toBe(200);
+    expect(temporaryCredentials.body.passwordStatus).toBe("temporary");
+    expect(temporaryCredentials.body.temporaryPassword).toBe("1234juan");
 
     const studentLogin = await request(app)
       .post("/api/auth/login")
@@ -474,14 +482,26 @@ describe("Aula Nova API", () => {
       .post("/api/auth/login")
       .send({ email: "0826cmjleesc@alumnoifop.edu", password: "NuevaClave2026!" })
       .expect(200);
+    const personalizedCredentials = await request(app)
+      .get(`/api/users/${studentUser.id}/student-credentials`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(personalizedCredentials.body.passwordStatus).toBe("personalized");
+    expect(personalizedCredentials.body.temporaryPassword).toBeNull();
+    await request(app)
+      .get(`/api/users/${studentUser.id}/student-credentials`)
+      .set("Authorization", `Bearer ${studentLogin.body.token}`)
+      .expect(403);
 
-    const users = await request(app).get("/api/users").set("Authorization", `Bearer ${token}`);
-    const studentUser = users.body.find((user: any) => user.student_id === created.body.id);
     const reset = await request(app)
       .post(`/api/users/${studentUser.id}/reset-student-password`)
       .set("Authorization", `Bearer ${token}`);
     expect(reset.status).toBe(200);
     expect(reset.body.temporaryPassword).toBe("1234juan");
+    const resetCredentials = await request(app)
+      .get(`/api/users/${studentUser.id}/student-credentials`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(resetCredentials.body.passwordStatus).toBe("temporary");
+    expect(resetCredentials.body.temporaryPassword).toBe("1234juan");
     await request(app)
       .post("/api/auth/login")
       .send({ email: "0826cmjleesc@alumnoifop.edu", password: "1234juan" })

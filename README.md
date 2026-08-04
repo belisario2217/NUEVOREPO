@@ -75,7 +75,7 @@ materias, docentes, criterios, escalas y estatus no están fijados en la interfa
 - Registro, búsqueda, filtros, baja y reactivación de alumnos.
 - Matrícula y correo institucional automáticos a partir del ciclo, iniciales, plan académico y modalidad del grupo.
 - Creación y vinculación automática de cuentas en altas manuales, importaciones y alumnos existentes sin acceso.
-- Contraseña temporal `1234` + primer nombre en minúsculas, cambio personal y restablecimiento administrativo.
+- Contraseña temporal `1234` + primer nombre en minúsculas, consulta administrativa, cambio personal y restablecimiento.
 - Importación de alumnos desde Excel/CSV con vista previa, cuentas automáticas y errores por fila.
 - Captura manual y ponderada de calificaciones.
 - Captura de tres parciales con promedio y estatus calculados automáticamente.
