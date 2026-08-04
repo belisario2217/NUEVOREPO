@@ -148,11 +148,12 @@ export function seed() {
     run("INSERT INTO shifts(name, start_time, end_time) VALUES ('Vespertino', '14:00', '20:00')");
     const morning = get<{ id: number }>("SELECT id FROM shifts WHERE name = 'Matutino'")!;
 
-    run("INSERT INTO school_cycles(name, start_date, end_date) VALUES ('2026-2027', '2026-08-17', '2027-07-09')");
+    run("INSERT INTO school_cycles(name, start_date, end_date) VALUES ('2026B - 2027A', '2026-08-10', '2027-07-31')");
     const cycle = get<{ id: number }>("SELECT id FROM school_cycles LIMIT 1")!;
-    run("INSERT INTO academic_periods(cycle_id, name, sequence, start_date, end_date) VALUES (?, 'Primer parcial', 1, '2026-08-17', '2026-10-16')", cycle.id);
+    run("INSERT INTO academic_periods(cycle_id, name, sequence, start_date, end_date) VALUES (?, 'Primer parcial', 1, '2026-08-10', '2026-10-16')", cycle.id);
     run("INSERT INTO academic_periods(cycle_id, name, sequence, start_date, end_date) VALUES (?, 'Segundo parcial', 2, '2026-10-19', '2026-12-18')", cycle.id);
     const period = get<{ id: number }>("SELECT id FROM academic_periods ORDER BY sequence LIMIT 1")!;
+    const curricularPeriod = get<{ id: number }>("SELECT id FROM curricular_periods WHERE sequence = 1")!;
 
     run("INSERT INTO groups(name, program_id, shift_id, cycle_id, capacity) VALUES ('1A', ?, ?, ?, 32)", program.id, morning.id, cycle.id);
     run("INSERT INTO groups(name, program_id, shift_id, cycle_id, capacity) VALUES ('1B', ?, ?, ?, 32)", program.id, morning.id, cycle.id);
@@ -198,8 +199,9 @@ export function seed() {
         number, first, last, second, email, activeStatus.id
       );
       run(
-        "INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, period_id) VALUES (?, ?, ?, ?, ?, ?)",
-        Number(student.lastInsertRowid), program.id, morning.id, groupA.id, cycle.id, period.id
+        `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, period_id, curricular_period_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        Number(student.lastInsertRowid), program.id, morning.id, groupA.id, cycle.id, period.id, curricularPeriod.id
       );
       const enrollment = get<{ id: number }>("SELECT id FROM enrollments WHERE student_id = ?", Number(student.lastInsertRowid))!;
       const score = [9.4, 7.8, 8.7, 5.6, 9.0, 6.4][index];

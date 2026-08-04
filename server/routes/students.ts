@@ -22,7 +22,7 @@ type StudentImportRow = {
   groupId: number;
   cycleId: number;
   planId: number;
-  periodId: number | null;
+  curricularPeriodId: number;
   statusId: number;
   exists: boolean;
 };
@@ -60,14 +60,31 @@ function value(row: TabularRow, ...aliases: string[]) {
   return "";
 }
 
+function validCurricularPeriod(input: unknown, programId: number) {
+  const id = asId(input, "Periodo del plan");
+  const period = get<{ id: number; sequence: number; duration_periods: number | null }>(
+    `SELECT cp.id, cp.sequence, p.duration_periods
+     FROM curricular_periods cp, programs p
+     WHERE cp.id = ? AND cp.is_active = 1 AND p.id = ? AND p.is_active = 1`,
+    id,
+    programId
+  );
+  if (!period) throw new ApiError(400, "El periodo del plan seleccionado no existe o está inactivo.");
+  if (period.duration_periods && period.sequence > period.duration_periods) {
+    throw new ApiError(400, "El periodo seleccionado excede la duración del plan de estudios.");
+  }
+  return period.id;
+}
+
 function studentSelect(where = "1 = 1") {
   return `SELECT st.id, st.student_number, st.first_name, st.last_name, st.second_last_name,
     TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) AS full_name,
     st.curp, st.birth_date, st.email, st.phone, st.emergency_contact, st.address, st.notes,
     st.is_active, ss.id AS status_id, ss.name AS status_name, ss.color AS status_color,
     e.id AS enrollment_id, e.program_id, p.name AS program_name, e.shift_id, sh.name AS shift_name,
-    e.group_id, g.name AS group_name, g.study_modality, e.cycle_id, sc.name AS cycle_name, e.period_id,
-    e.plan_id, pl.name AS plan_name, pl.matriculation_code, ap.name AS period_name
+    e.group_id, g.name AS group_name, g.study_modality, e.cycle_id, sc.name AS cycle_name,
+    e.period_id AS evaluation_period_id, e.curricular_period_id, cp.name AS curricular_period_name,
+    e.plan_id, pl.name AS plan_name, pl.matriculation_code
     FROM students st
     JOIN student_statuses ss ON ss.id = st.status_id
     LEFT JOIN enrollments e ON e.student_id = st.id AND e.is_active = 1
@@ -76,7 +93,7 @@ function studentSelect(where = "1 = 1") {
     LEFT JOIN groups g ON g.id = e.group_id
     LEFT JOIN school_cycles sc ON sc.id = e.cycle_id
     LEFT JOIN academic_plans pl ON pl.id = e.plan_id
-    LEFT JOIN academic_periods ap ON ap.id = e.period_id
+    LEFT JOIN curricular_periods cp ON cp.id = e.curricular_period_id
     WHERE ${where}`;
 }
 
@@ -131,7 +148,10 @@ studentsRouter.get("/record/:id", requirePermission("students.view"), (req, res)
 studentsRouter.post("/", requirePermission("students.manage"), (req: AuthenticatedRequest, res) => {
   const body = req.body;
   const required = ["firstName", "lastName", "statusId", "programId", "shiftId", "groupId", "cycleId", "planId"];
-  if (required.some((field) => !body[field])) throw new ApiError(400, "Completa los datos obligatorios del alumno.");
+  const curricularPeriodInput = body.curricularPeriodId ?? body.periodId;
+  if (required.some((field) => !body[field]) || !curricularPeriodInput) {
+    throw new ApiError(400, "Completa los datos obligatorios del alumno, incluido el periodo del plan.");
+  }
   const firstName = cleanText(body.firstName, 100);
   const lastName = cleanText(body.lastName, 100);
   const secondLastName = optionalText(body.secondLastName, 100);
@@ -140,14 +160,12 @@ studentsRouter.post("/", requirePermission("students.manage"), (req: Authenticat
   const groupId = asId(body.groupId, "Grupo");
   const cycleId = asId(body.cycleId, "Ciclo");
   const planId = asId(body.planId, "Plan académico");
+  const curricularPeriodId = validCurricularPeriod(curricularPeriodInput, programId);
   const identity = generateStudentIdentity({
     firstName, lastName, secondLastName, programId, shiftId, groupId, cycleId, planId
   });
   if (get("SELECT id FROM students WHERE student_number = ?", identity.studentNumber)) {
     throw new ApiError(409, `La matrícula ${identity.studentNumber} ya existe. Verifica los nombres, el ciclo, el plan y la modalidad.`);
-  }
-  if (body.periodId && !get("SELECT id FROM academic_periods WHERE id = ? AND cycle_id = ? AND is_active = 1", asId(body.periodId, "Periodo"), cycleId)) {
-    throw new ApiError(400, "El periodo seleccionado no corresponde al ciclo escolar.");
   }
   const created = transaction(() => {
     const student = run(
@@ -169,14 +187,14 @@ studentsRouter.post("/", requirePermission("students.manage"), (req: Authenticat
     );
     const studentId = Number(student.lastInsertRowid);
     const enrollment = run(
-      `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, period_id, plan_id)
+      `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, curricular_period_id, plan_id)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       studentId,
       programId,
       shiftId,
       groupId,
       cycleId,
-      body.periodId ? asId(body.periodId, "Periodo") : null,
+      curricularPeriodId,
       planId
     );
     syncEnrollmentGroupSubjects(Number(enrollment.lastInsertRowid));
@@ -192,6 +210,7 @@ studentsRouter.post("/", requirePermission("students.manage"), (req: Authenticat
   logActivity(req, "create", "students", created.studentId, {
     studentNumber: identity.studentNumber,
     planId,
+    curricularPeriodId,
     studyModality: identity.studyModality,
     accessCreated: created.access.created
   });
@@ -228,12 +247,15 @@ studentsRouter.patch("/:id", requirePermission("students.manage"), (req: Authent
       id
     );
     if (body.programId && body.shiftId && body.groupId && body.cycleId) {
-      const currentEnrollment = get<{ plan_id: number | null }>(
-        "SELECT plan_id FROM enrollments WHERE student_id = ? AND is_active = 1",
+      const currentEnrollment = get<{ plan_id: number | null; curricular_period_id: number | null }>(
+        "SELECT plan_id, curricular_period_id FROM enrollments WHERE student_id = ? AND is_active = 1",
         id
       );
       const planId = body.planId ? asId(body.planId, "Plan académico") : currentEnrollment?.plan_id;
       if (!planId) throw new ApiError(400, "Selecciona el plan académico del alumno.");
+      const curricularPeriodInput = body.curricularPeriodId ?? body.periodId ?? currentEnrollment?.curricular_period_id;
+      if (!curricularPeriodInput) throw new ApiError(400, "Selecciona el periodo del plan del alumno.");
+      const curricularPeriodId = validCurricularPeriod(curricularPeriodInput, asId(body.programId, "Programa"));
       const currentStudent = get<{ first_name: string; last_name: string; second_last_name: string | null }>(
         "SELECT first_name, last_name, second_last_name FROM students WHERE id = ?",
         id
@@ -250,13 +272,14 @@ studentsRouter.patch("/:id", requirePermission("students.manage"), (req: Authent
       });
       run("UPDATE enrollments SET is_active = 0 WHERE student_id = ? AND is_active = 1", id);
       run(
-        `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, period_id, plan_id)
+        `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, curricular_period_id, plan_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(student_id, cycle_id) DO UPDATE SET program_id = excluded.program_id,
-         shift_id = excluded.shift_id, group_id = excluded.group_id, period_id = excluded.period_id,
+         shift_id = excluded.shift_id, group_id = excluded.group_id,
+         curricular_period_id = excluded.curricular_period_id,
          plan_id = excluded.plan_id, is_active = 1`,
         id, Number(body.programId), Number(body.shiftId), Number(body.groupId), Number(body.cycleId),
-        body.periodId ? Number(body.periodId) : null, planId
+        curricularPeriodId, planId
       );
       const enrollment = get<{ id: number }>(
         "SELECT id FROM enrollments WHERE student_id = ? AND cycle_id = ? AND is_active = 1",
@@ -350,8 +373,8 @@ studentsRouter.get("/template/import.xlsx", requirePermission("students.import")
     "Plan académico": "Bachillerato General - Plan 2026",
     "Turno": "Matutino",
     "Grupo": "1A",
-    "Ciclo": "2026-2027",
-    "Periodo": "Primer parcial",
+    "Ciclo escolar": "2026B - 2027A",
+    "Periodo del plan": "PRIMER SEMESTRE",
     "Estatus": "Activo"
   }]);
 });
@@ -373,17 +396,22 @@ studentsRouter.post("/import/preview", requirePermission("students.import"), upl
     const programName = value(source, "Programa", "Programa de estudios");
     const shiftName = value(source, "Turno");
     const groupName = value(source, "Grupo");
-    const cycleName = value(source, "Ciclo", "Ciclo escolar");
+    const cycleName = value(source, "Ciclo escolar", "Ciclo");
+    const curricularPeriodName = value(source, "Periodo del plan", "Semestre", "Periodo");
     const statusName = value(source, "Estatus", "Estatus de alumno") || "Activo";
     const missing = [
       [firstName, "nombre"], [lastName, "apellido paterno"],
-      [programName, "programa"], [shiftName, "turno"], [groupName, "grupo"], [cycleName, "ciclo"]
+      [programName, "programa"], [shiftName, "turno"], [groupName, "grupo"],
+      [cycleName, "ciclo escolar"], [curricularPeriodName, "periodo del plan"]
     ].filter(([item]) => !item).map(([, label]) => label);
     if (missing.length) {
       errors.push({ row: rowNumber, message: `Faltan: ${missing.join(", ")}.` });
       return;
     }
-    const program = get<{ id: number }>("SELECT id FROM programs WHERE name = ? AND is_active = 1", programName);
+    const program = get<{ id: number; duration_periods: number | null }>(
+      "SELECT id, duration_periods FROM programs WHERE name = ? AND is_active = 1",
+      programName
+    );
     const shift = get<{ id: number }>("SELECT id FROM shifts WHERE name = ? AND is_active = 1", shiftName);
     const cycle = get<{ id: number }>("SELECT id FROM school_cycles WHERE name = ? AND is_active = 1", cycleName);
     const status = get<{ id: number }>("SELECT id FROM student_statuses WHERE name = ? AND is_active = 1", statusName);
@@ -404,16 +432,20 @@ studentsRouter.post("/import/preview", requirePermission("students.import"), upl
     const group = program && shift && cycle
       ? get<{ id: number }>("SELECT id FROM groups WHERE name = ? AND program_id = ? AND shift_id = ? AND cycle_id = ? AND is_active = 1", groupName, program.id, shift.id, cycle.id)
       : undefined;
-    const periodName = value(source, "Periodo", "Periodo escolar");
-    const period = periodName && cycle
-      ? get<{ id: number }>("SELECT id FROM academic_periods WHERE name = ? AND cycle_id = ? AND is_active = 1", periodName, cycle.id)
+    const curricularPeriod = curricularPeriodName
+      ? get<{ id: number; sequence: number }>(
+          "SELECT id, sequence FROM curricular_periods WHERE name = ? COLLATE NOCASE AND is_active = 1",
+          curricularPeriodName
+        )
       : undefined;
     const invalid = [
       [program, `programa "${programName}"`], [shift, `turno "${shiftName}"`], [cycle, `ciclo "${cycleName}"`],
       [group, `grupo "${groupName}"`], [plan, planName ? `plan "${planName}"` : "plan académico activo"],
-      [status, `estatus "${statusName}"`]
+      [curricularPeriod, `periodo del plan "${curricularPeriodName}"`], [status, `estatus "${statusName}"`]
     ].filter(([item]) => !item).map(([, label]) => label);
-    if (periodName && !period) invalid.push(`periodo "${periodName}"`);
+    if (program?.duration_periods && curricularPeriod && curricularPeriod.sequence > program.duration_periods) {
+      invalid.push(`periodo del plan "${curricularPeriodName}" fuera de la duración del programa`);
+    }
     if (invalid.length) {
       errors.push({ row: rowNumber, message: `No existe o está inactivo: ${invalid.join(", ")}.` });
       return;
@@ -458,7 +490,7 @@ studentsRouter.post("/import/preview", requirePermission("students.import"), upl
       groupId: group!.id,
       cycleId: cycle!.id,
       planId: plan!.id,
-      periodId: period?.id ?? null,
+      curricularPeriodId: curricularPeriod!.id,
       statusId: status!.id,
       exists: Boolean(get("SELECT id FROM students WHERE student_number = ?", studentNumber))
     });
@@ -523,12 +555,13 @@ studentsRouter.post("/import/apply", requirePermission("students.import"), (req:
         created++;
       }
       run(
-        `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, period_id, plan_id)
+        `INSERT INTO enrollments(student_id, program_id, shift_id, group_id, cycle_id, curricular_period_id, plan_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(student_id, cycle_id) DO UPDATE SET program_id = excluded.program_id,
-         shift_id = excluded.shift_id, group_id = excluded.group_id, period_id = excluded.period_id,
+         shift_id = excluded.shift_id, group_id = excluded.group_id,
+         curricular_period_id = excluded.curricular_period_id,
          plan_id = excluded.plan_id, is_active = 1`,
-        studentId!, item.programId, item.shiftId, item.groupId, item.cycleId, item.periodId, item.planId
+        studentId!, item.programId, item.shiftId, item.groupId, item.cycleId, item.curricularPeriodId, item.planId
       );
       const enrollment = get<{ id: number }>(
         "SELECT id FROM enrollments WHERE student_id = ? AND cycle_id = ? AND is_active = 1",
@@ -567,7 +600,7 @@ studentsRouter.get("/export/file", requirePermission("students.export"), (req, r
     Turno: student.shift_name,
     Grupo: student.group_name,
     Ciclo: student.cycle_name,
-    Periodo: student.period_name,
+    "Periodo del plan": student.curricular_period_name,
     Estatus: student.status_name,
     Correo: student.email ?? "",
     Teléfono: student.phone ?? ""

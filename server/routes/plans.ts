@@ -97,7 +97,7 @@ plansRouter.post("/", requirePermission("catalogs.manage"), (req: AuthenticatedR
     const subjectName = cleanText(item.name, 180);
     const subjectType = item.subjectType === "elective" ? "elective" : "mandatory";
     const credits = asNumber(item.credits, `Créditos de la asignatura ${index + 1}`);
-    const recommendedPeriod = Math.max(1, Math.trunc(asNumber(item.recommendedPeriod || 1, "Periodo sugerido")));
+    const recommendedPeriod = Math.max(1, Math.trunc(asNumber(item.recommendedPeriod || 1, "Semestre sugerido")));
     const hoursPerWeek = Math.max(0, Math.trunc(Number(item.hoursPerWeek || 0)));
     if (!subjectCode || !subjectName || credits <= 0) {
       throw new ApiError(400, `Completa clave, nombre y créditos de la asignatura ${index + 1}.`);
@@ -173,7 +173,7 @@ plansRouter.put("/:id", requirePermission("catalogs.manage"), (req: Authenticate
     const subjectName = cleanText(item.name, 180);
     const subjectType = item.subjectType === "elective" ? "elective" : "mandatory";
     const credits = asNumber(item.credits, `Créditos de la asignatura ${index + 1}`);
-    const recommendedPeriod = Math.max(1, Math.trunc(asNumber(item.recommendedPeriod || 1, "Periodo sugerido")));
+    const recommendedPeriod = Math.max(1, Math.trunc(asNumber(item.recommendedPeriod || 1, "Semestre sugerido")));
     const hoursPerWeek = Math.max(0, Math.trunc(Number(item.hoursPerWeek || 0)));
     if (!subjectCode || !subjectName || credits <= 0) {
       throw new ApiError(400, `Completa clave, nombre y créditos de la asignatura ${index + 1}.`);

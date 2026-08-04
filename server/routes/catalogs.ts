@@ -39,7 +39,7 @@ const definitions: Record<string, CatalogDefinition> = {
       { name: "code", label: "Clave", required: true },
       { name: "name", label: "Nombre", required: true },
       { name: "level_id", label: "Nivel", type: "number", reference: "levels", required: true },
-      { name: "duration_periods", label: "Periodos", type: "number" },
+      { name: "duration_periods", label: "Semestres del plan", type: "number" },
       { name: "description", label: "Descripción" }
     ],
     listSql: "SELECT p.*, l.name AS level_name FROM programs p LEFT JOIN academic_levels l ON l.id = p.level_id"
@@ -66,8 +66,8 @@ const definitions: Record<string, CatalogDefinition> = {
   },
   periods: {
     table: "academic_periods",
-    label: "Periodos de evaluación",
-    singular: "Periodo",
+    label: "Periodos de evaluación (parciales)",
+    singular: "Periodo de evaluación",
     fields: [
       { name: "cycle_id", label: "Ciclo", type: "number", reference: "cycles", required: true },
       { name: "name", label: "Nombre", required: true },
@@ -77,6 +77,15 @@ const definitions: Record<string, CatalogDefinition> = {
       { name: "grade_entry_open", label: "Captura abierta", type: "boolean" }
     ],
     listSql: "SELECT p.*, c.name AS cycle_name FROM academic_periods p JOIN school_cycles c ON c.id = p.cycle_id"
+  },
+  semesters: {
+    table: "curricular_periods",
+    label: "Periodos del plan de estudios",
+    singular: "Periodo del plan",
+    fields: [
+      { name: "name", label: "Nombre", required: true },
+      { name: "sequence", label: "Avance semestral", type: "number", required: true }
+    ]
   },
   groups: {
     table: "groups",
@@ -249,6 +258,9 @@ function forceDeleteCatalog(type: string, table: string, id: number) {
     case "periods":
       deleteAssignmentData("sa.period_id = ?", id);
       run("UPDATE enrollments SET period_id = NULL WHERE period_id = ?", id);
+      break;
+    case "semesters":
+      run("UPDATE enrollments SET curricular_period_id = NULL WHERE curricular_period_id = ?", id);
       break;
     case "groups":
       deleteAssignmentData("sa.group_id = ?", id);

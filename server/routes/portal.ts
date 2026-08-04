@@ -92,7 +92,7 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
      JOIN groups g ON g.id = e.group_id
      JOIN shifts sh ON sh.id = e.shift_id
      JOIN school_cycles sc ON sc.id = e.cycle_id
-     LEFT JOIN academic_periods ap ON ap.id = e.period_id
+     LEFT JOIN curricular_periods ap ON ap.id = e.curricular_period_id
      LEFT JOIN academic_plans pl ON pl.id = e.plan_id
      WHERE e.student_id = ? AND e.is_active = 1
      ORDER BY e.id DESC LIMIT 1`,

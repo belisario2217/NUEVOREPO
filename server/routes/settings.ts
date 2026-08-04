@@ -121,6 +121,7 @@ settingsRouter.post(
           shifts: count("shifts"),
           cycles: count("school_cycles"),
           periods: count("academic_periods"),
+          curricularPeriods: available.has("curricular_periods") ? count("curricular_periods") : 0,
           programs: count("programs")
         };
         candidate.close();

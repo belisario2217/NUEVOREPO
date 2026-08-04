@@ -266,7 +266,7 @@ function buildAttendanceSheet(
   setInfo("G7:I7", "MATERIA:", "J7:O7", page.context.subject_name ?? "POR ASIGNAR");
   setInfo("P7:T7", "SEMESTRE Y GRUPO:", "U7:X7", page.context.group_name, true);
   setInfo("A8:C8", "NOMBRE DEL DOCENTE:", "D8:F8", page.context.teacher_name ?? "POR ASIGNAR");
-  setInfo("G8:I8", "DURACIÓN:", "J8:M8", `${page.context.duration_periods} PERIODOS`, true);
+  setInfo("G8:I8", "DURACIÓN:", "J8:M8", `${page.context.duration_periods} SEMESTRES`, true);
   setInfo("N8:P8", "HORARIO:", "Q8:X8", schedule(page.context));
   setInfo("A9:C9", "PERIODO:", "D9:F9", page.context.period_name ?? page.context.cycle_name);
   setInfo("G9:I9", "PLANTEL:", "J9:X9", campusName);
@@ -398,7 +398,7 @@ function drawAttendancePdfPage(
   pdfCell(doc, left, y2, labelWidth, fieldHeight, "NOMBRE DEL DOCENTE:", { size: 6.2 });
   pdfCell(doc, left + labelWidth, y2, 176, fieldHeight, page.context.teacher_name ?? "POR ASIGNAR", { size: 7 });
   pdfCell(doc, left + 268, y2, 56, fieldHeight, "DURACIÓN:", { size: 6.4 });
-  pdfCell(doc, left + 324, y2, 112, fieldHeight, `${page.context.duration_periods} PERIODOS`, { bold: true, size: 7 });
+  pdfCell(doc, left + 324, y2, 112, fieldHeight, `${page.context.duration_periods} SEMESTRES`, { bold: true, size: 7 });
   pdfCell(doc, left + 436, y2, 70, fieldHeight, "HORARIO:", { size: 6.4 });
   pdfCell(doc, left + 506, y2, 246, fieldHeight, schedule(page.context), { size: 7 });
 

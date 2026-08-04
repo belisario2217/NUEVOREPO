@@ -192,7 +192,7 @@ export function StudentPortalPage() {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Periodo</th><th>Materia</th><th>Tipo / creditos</th><th>Docente</th><th>Parcial 1</th><th>Parcial 2</th><th>Parcial 3</th><th>Promedio</th><th>Resultado</th></tr>
+              <tr><th>Semestre</th><th>Materia</th><th>Tipo / creditos</th><th>Docente</th><th>Parcial 1</th><th>Parcial 2</th><th>Parcial 3</th><th>Promedio</th><th>Resultado</th></tr>
             </thead>
             <tbody>
               {subjects.map((subject) => (

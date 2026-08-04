@@ -33,7 +33,8 @@ type Student = {
   group_name: string;
   cycle_id: number;
   cycle_name: string;
-  period_id: number | null;
+  curricular_period_id: number | null;
+  curricular_period_name: string | null;
   plan_id: number | null;
   plan_name: string | null;
   study_modality: "escolarizado" | "semiescolarizado" | "complementario" | null;
@@ -46,6 +47,8 @@ type Option = {
   program_id?: number;
   shift_id?: number;
   cycle_id?: number;
+  duration_periods?: number;
+  sequence?: number;
   study_modality?: "escolarizado" | "semiescolarizado" | "complementario";
 };
 type PlanOption = { id: number; name: string; program_id: number; program_name: string; matriculation_code: string; is_active: number };
@@ -53,7 +56,7 @@ type Filters = { search: string; programId: string; shiftId: string; groupId: st
 const blankFilters: Filters = { search: "", programId: "", shiftId: "", groupId: "", cycleId: "", statusId: "" };
 const blankForm = {
   studentNumber: "", firstName: "", lastName: "", secondLastName: "", curp: "", birthDate: "",
-  email: "", phone: "", notes: "", statusId: "", programId: "", shiftId: "", groupId: "", cycleId: "", planId: "", periodId: ""
+  email: "", phone: "", notes: "", statusId: "", programId: "", shiftId: "", groupId: "", cycleId: "", planId: "", curricularPeriodId: ""
 };
 
 const modalityLabels = {
@@ -100,7 +103,7 @@ export function StudentsPage() {
   }
 
   useEffect(() => {
-    Promise.all(["programs", "shifts", "groups", "cycles", "periods", "statuses"].map(async (type) => {
+    Promise.all(["programs", "shifts", "groups", "cycles", "semesters", "statuses"].map(async (type) => {
       const result = await api<{ records: any[] }>(`/catalogs/${type}`);
       return [type, result.records.filter((item) => item.is_active).map((item) => ({
         id: item.id,
@@ -109,6 +112,8 @@ export function StudentsPage() {
         program_id: item.program_id,
         shift_id: item.shift_id,
         cycle_id: item.cycle_id,
+        duration_periods: item.duration_periods,
+        sequence: item.sequence,
         study_modality: item.study_modality
       }))] as const;
     })).then((entries) => setOptions(Object.fromEntries(entries)));
@@ -139,6 +144,13 @@ export function StudentsPage() {
       .map((plan) => ({ id: plan.id, name: `${plan.name} (${plan.matriculation_code})` }));
   }, [plans, options.programs, form.programId]);
 
+  const formCurricularPeriods = useMemo(() => {
+    const program = (options.programs ?? []).find((item) => String(item.id) === form.programId);
+    return [...(options.semesters ?? [])]
+      .filter((period) => !program?.duration_periods || Number(period.sequence) <= program.duration_periods)
+      .sort((left, right) => Number(left.sequence) - Number(right.sequence));
+  }, [options.programs, options.semesters, form.programId]);
+
   const selectedFormGroup = useMemo(
     () => (options.groups ?? []).find((group) => String(group.id) === form.groupId),
     [options.groups, form.groupId]
@@ -150,6 +162,15 @@ export function StudentsPage() {
       ? { ...current, planId: String(formPlans[0].id) }
       : current);
   }, [formOpen, form.programId, form.planId, formPlans]);
+
+  useEffect(() => {
+    if (!formOpen || !form.programId || !formCurricularPeriods.length) return;
+    const currentIsValid = formCurricularPeriods.some((period) => String(period.id) === form.curricularPeriodId);
+    if (currentIsValid) return;
+    setForm((current) => current.programId === form.programId
+      ? { ...current, curricularPeriodId: String(formCurricularPeriods[0].id) }
+      : current);
+  }, [formOpen, form.programId, form.curricularPeriodId, formCurricularPeriods]);
 
   function selectProgram(programId: string) {
     const selectedGroup = (options.groups ?? []).find((group) => String(group.id) === filters.groupId);
@@ -230,7 +251,7 @@ export function StudentsPage() {
       groupId: String(student.group_id),
       cycleId: String(student.cycle_id),
       planId: student.plan_id ? String(student.plan_id) : "",
-      periodId: student.period_id ? String(student.period_id) : ""
+      curricularPeriodId: student.curricular_period_id ? String(student.curricular_period_id) : ""
     });
     setFormOpen(true);
     setMenuFor(null);
@@ -404,10 +425,10 @@ export function StudentsPage() {
             <Field label="Programa" required><Select value={form.programId} onChange={(event) => selectFormProgram(event.target.value)} options={options.programs ?? []} required /></Field>
             <Field label="Turno" required><Select value={form.shiftId} onChange={(event) => setForm({ ...form, shiftId: event.target.value })} options={options.shifts ?? []} required /></Field>
             <Field label="Grupo" required><Select value={form.groupId} onChange={(event) => selectFormGroup(event.target.value)} options={formGroups} required /></Field>
-            <Field label="Ciclo" required><Select value={form.cycleId} onChange={(event) => setForm({ ...form, cycleId: event.target.value })} options={options.cycles ?? []} required /></Field>
+            <Field label="Ciclo escolar" hint="Intervalo temporal; por ejemplo, 2026B - 2027A." required><Select value={form.cycleId} onChange={(event) => setForm({ ...form, cycleId: event.target.value })} options={options.cycles ?? []} required /></Field>
+            <Field label="Periodo del plan" hint="Avance del alumno; es independiente del ciclo escolar." required><Select value={form.curricularPeriodId} onChange={(event) => setForm({ ...form, curricularPeriodId: event.target.value })} options={formCurricularPeriods} required /></Field>
             <Field label="Plan académico" required><Select value={form.planId} onChange={(event) => setForm({ ...form, planId: event.target.value })} options={formPlans} required /></Field>
             <Field label="Modalidad del grupo"><input value={selectedFormGroup?.study_modality ? modalityLabels[selectedFormGroup.study_modality] : "Selecciona un grupo"} readOnly /></Field>
-            <Field label="Periodo"><Select value={form.periodId} onChange={(event) => setForm({ ...form, periodId: event.target.value })} options={options.periods ?? []} /></Field>
             <Field label="Observaciones"><input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>
           </div>
           <div className="modal-actions"><Button type="button" variant="ghost" onClick={() => setFormOpen(false)}>Cancelar</Button><Button type="submit" busy={busy}>{editing ? "Guardar cambios" : "Registrar alumno"}</Button></div>

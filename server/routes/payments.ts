@@ -232,7 +232,7 @@ function getStudentAccount(studentId: number) {
      JOIN groups g ON g.id = e.group_id
      JOIN shifts sh ON sh.id = e.shift_id
      JOIN school_cycles sc ON sc.id = e.cycle_id
-     LEFT JOIN academic_periods period ON period.id = e.period_id
+     LEFT JOIN curricular_periods period ON period.id = e.curricular_period_id
      LEFT JOIN academic_plans ap ON ap.id = e.plan_id
      WHERE e.student_id = ? AND e.is_active = 1
      ORDER BY e.id DESC LIMIT 1`,
@@ -506,7 +506,7 @@ paymentsRouter.post("/import/preview", requirePermission("payments.manage"), upl
        JOIN groups g ON g.id = e.group_id
        JOIN shifts sh ON sh.id = e.shift_id
        JOIN school_cycles sc ON sc.id = e.cycle_id
-       LEFT JOIN academic_periods period ON period.id = e.period_id
+       LEFT JOIN curricular_periods period ON period.id = e.curricular_period_id
        LEFT JOIN academic_plans ap ON ap.id = e.plan_id
        WHERE st.student_number = ? AND st.is_active = 1
        ORDER BY e.id DESC LIMIT 1`,

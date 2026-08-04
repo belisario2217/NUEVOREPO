@@ -203,7 +203,7 @@ export function PlansPage() {
             <div><Calculator size={20} /><span>Colegiatura</span><strong>{Number(selected.tuition_amount || 0).toLocaleString("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 })}</strong></div>
             <div><span>Estatus</span><StatusBadge active={Boolean(selected.is_active)} label={selected.is_active ? "Activo" : "Inactivo"} /></div>
           </div>
-          <div className="table-wrap plan-subject-table"><table><thead><tr><th>Periodo</th><th>Asignatura</th><th>Tipo</th><th>Horas / semana</th><th>Créditos</th><th>% del plan</th></tr></thead><tbody>
+          <div className="table-wrap plan-subject-table"><table><thead><tr><th>Semestre</th><th>Asignatura</th><th>Tipo</th><th>Horas / semana</th><th>Créditos</th><th>% del plan</th></tr></thead><tbody>
             {subjects.map((subject) => <tr key={subject.id}><td>{subject.recommended_period}</td><td><strong className="table-main">{subject.name}</strong><span className="table-sub">{subject.code}</span></td><td><span className={`subject-type ${subject.subject_type}`}>{subject.subject_type === "mandatory" ? "Obligatoria" : "Optativa"}</span></td><td>{subject.hours_per_week || "—"}</td><td><strong>{subject.credits}</strong></td><td>{selected.total_credits ? (subject.credits / selected.total_credits * 100).toFixed(1) : "0.0"}%</td></tr>)}
           </tbody></table></div>
         </> : <EmptyState icon={<BookCopy size={26} />} title="Aún no hay planes académicos" text="Crea un plan y agrega todas sus asignaturas." />}
@@ -222,7 +222,7 @@ export function PlansPage() {
             <Field label="Colegiatura por periodo"><input type="number" min="0" step="0.01" value={form.tuitionAmount} onChange={(event) => setForm({ ...form, tuitionAmount: event.target.value })} placeholder="0.00" /></Field>
             <Field label="Descripción"><input value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></Field>
           </div>
-          <div className="plan-subject-editor-title"><div><strong>Asignaturas del plan</strong><span>Registra tipo, créditos y periodo sugerido.</span></div><b>{draftCredits} créditos</b></div>
+          <div className="plan-subject-editor-title"><div><strong>Asignaturas del plan</strong><span>Registra tipo, créditos y semestre sugerido.</span></div><b>{draftCredits} créditos</b></div>
           <div className="plan-subject-editor">
             {drafts.map((subject, index) => <div className="plan-subject-row" key={index}>
               <span>{index + 1}</span>
@@ -230,7 +230,7 @@ export function PlansPage() {
               <input aria-label={`Nombre asignatura ${index + 1}`} value={subject.name} onChange={(event) => updateSubject(index, { name: event.target.value })} placeholder="Nombre de la asignatura" required />
               <select aria-label={`Tipo asignatura ${index + 1}`} value={subject.subjectType} onChange={(event) => updateSubject(index, { subjectType: event.target.value as SubjectDraft["subjectType"] })}><option value="mandatory">Obligatoria</option><option value="elective">Optativa</option></select>
               <input aria-label={`Créditos asignatura ${index + 1}`} type="number" min="0.5" step="0.5" value={subject.credits} onChange={(event) => updateSubject(index, { credits: event.target.value })} placeholder="Créditos" required />
-              <input aria-label={`Periodo asignatura ${index + 1}`} type="number" min="1" value={subject.recommendedPeriod} onChange={(event) => updateSubject(index, { recommendedPeriod: event.target.value })} title="Periodo sugerido" required />
+              <input aria-label={`Semestre asignatura ${index + 1}`} type="number" min="1" value={subject.recommendedPeriod} onChange={(event) => updateSubject(index, { recommendedPeriod: event.target.value })} title="Semestre sugerido" required />
               <button type="button" className="icon-button" disabled={drafts.length === 1} onClick={() => setDrafts((current) => current.filter((_, subjectIndex) => subjectIndex !== index))} title="Quitar asignatura"><Trash2 size={17} /></button>
             </div>)}
           </div>

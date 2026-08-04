@@ -236,7 +236,7 @@ describe("Aula Nova API", () => {
       .set("Authorization", `Bearer ${token}`);
     expect(account.body.billing.summary.expectedAmount).toBe(36000);
     expect(account.body.billing.summary.totalInstallments).toBe(36);
-    expect(account.body.billing.schedule[0].dueDate).toBe("2026-09-10");
+    expect(account.body.billing.schedule[0].dueDate).toBe("2026-08-10");
 
     await request(app)
       .post("/api/payments")
@@ -441,13 +441,18 @@ describe("Aula Nova API", () => {
 
   it("creates and filters a student enrollment", async () => {
     const catalogs = await Promise.all(
-      ["programs", "shifts", "groups", "cycles", "periods", "statuses"].map((type) =>
+      ["programs", "shifts", "groups", "cycles", "semesters", "statuses"].map((type) =>
         request(app).get(`/api/catalogs/${type}`).set("Authorization", `Bearer ${token}`)
       )
     );
-    const [programs, shifts, groups, cycles, periods, statuses] = catalogs.map((response) => response.body.records);
+    const [programs, shifts, groups, cycles, semesters, statuses] = catalogs.map((response) => response.body.records);
     const targetGroup = groups.find((group: any) => group.name === "1A");
-    const targetPeriod = periods.find((period: any) => period.cycle_id === targetGroup.cycle_id);
+    const targetPeriod = semesters.find((period: any) => period.sequence === 1);
+    const targetCycle = cycles.find((cycle: any) => cycle.id === targetGroup.cycle_id);
+    expect(targetCycle.name).toBe("2026B - 2027A");
+    expect(targetCycle.start_date).toBe("2026-08-10");
+    expect(targetPeriod.name).toBe("PRIMER SEMESTRE");
+    expect(targetPeriod.cycle_id).toBeUndefined();
     const plan = await request(app)
       .post("/api/plans")
       .set("Authorization", `Bearer ${token}`)
@@ -463,6 +468,23 @@ describe("Aula Nova API", () => {
         ]
       });
     expect(plan.status).toBe(201);
+    const outsidePlanDuration = await request(app)
+      .post("/api/students")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        firstName: "Periodo",
+        lastName: "Fuera",
+        statusId: statuses[0].id,
+        programId: targetGroup.program_id,
+        shiftId: targetGroup.shift_id,
+        groupId: targetGroup.id,
+        cycleId: targetGroup.cycle_id,
+        planId: plan.body.id,
+        curricularPeriodId: semesters.find((period: any) => period.sequence === 7).id
+      });
+    expect(outsidePlanDuration.status).toBe(400);
+    expect(outsidePlanDuration.body.message).toContain("excede la duración del plan");
+
     const created = await request(app)
       .post("/api/students")
       .set("Authorization", `Bearer ${token}`)
@@ -476,12 +498,14 @@ describe("Aula Nova API", () => {
         groupId: targetGroup.id,
         cycleId: targetGroup.cycle_id,
         planId: plan.body.id,
-        periodId: targetPeriod.id
+        curricularPeriodId: targetPeriod.id
       });
     expect(created.status).toBe(201);
     expect(created.body.student_number).toBe("0826CMJLEESC");
     expect(created.body.email).toBe("0826cmjleesc@alumnoifop.edu");
     expect(created.body.plan_id).toBe(plan.body.id);
+    expect(created.body.curricular_period_id).toBe(targetPeriod.id);
+    expect(created.body.curricular_period_name).toBe("PRIMER SEMESTRE");
     expect(created.body.access).toEqual({
       email: "0826cmjleesc@alumnoifop.edu",
       temporaryPassword: "1234juan"
@@ -549,7 +573,7 @@ describe("Aula Nova API", () => {
         groupId: targetGroup.id,
         cycleId: targetGroup.cycle_id,
         planId: plan.body.id,
-        periodId: targetPeriod.id
+        curricularPeriodId: targetPeriod.id
       });
     expect(duplicate.status).toBe(409);
 
@@ -636,8 +660,8 @@ describe("Aula Nova API", () => {
       "Plan académico": "Plan con colegiatura",
       "Turno": "Matutino",
       "Grupo": "1A",
-      "Ciclo": "2026-2027",
-      "Periodo": "Primer parcial",
+      "Ciclo escolar": "2026B - 2027A",
+      "Periodo del plan": "PRIMER SEMESTRE",
       "Estatus": "Activo"
     }]);
     XLSX.utils.book_append_sheet(workbook, sheet, "Alumnos");
@@ -658,6 +682,7 @@ describe("Aula Nova API", () => {
     expect(applied.body.created).toBe(1);
     const imported = await request(app).get("/api/students?search=0826IXMBGESC").set("Authorization", `Bearer ${token}`);
     expect(imported.body.records[0].email).toBe("0826ixmbgesc@alumnoifop.edu");
+    expect(imported.body.records[0].curricular_period_name).toBe("PRIMER SEMESTRE");
     const importedLogin = await request(app)
       .post("/api/auth/login")
       .send({ email: "0826ixmbgesc@alumnoifop.edu", password: "1234marina" });
