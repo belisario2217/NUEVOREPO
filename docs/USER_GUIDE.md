@@ -65,7 +65,7 @@ pestaña **Estado de Cuenta** del Excel agregan automáticamente las hojas carta
 cada hoja repite encabezado, datos del alumno, totales, firma y código de verificación.
 
 Al registrar o editar un pago, captura el **NÚMERO DE FOLIO FÍSICO** impreso en el recibo,
-usando cuatro dígitos del **0001 al 0500**. El sistema conserva por separado su identificador
+usando cuatro dígitos del **0001 al 1000**. El sistema conserva por separado su identificador
 interno; los estados de cuenta muestran únicamente el folio físico.
 
 En **Colegiaturas mensuales**, al marcar un mes como pagado el concepto se genera con el

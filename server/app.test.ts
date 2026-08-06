@@ -248,7 +248,7 @@ describe("Aula Nova API", () => {
         paidAt: "2026-09-03",
         paymentMethod: "Efectivo",
         concept: "Colegiatura",
-        notes: "0501"
+        notes: "1001"
       })
       .expect(400);
 
@@ -262,13 +262,13 @@ describe("Aula Nova API", () => {
         paidAt: "2026-09-03",
         paymentMethod: "Efectivo",
         concept: "Colegiatura",
-        notes: "0042"
+        notes: "1000"
       });
     expect(created.status).toBe(201);
     expect(created.body.billing.summary.paidAmount).toBe(1200);
     expect(created.body.billing.summary.balance).toBe(0);
     const createdPayment = created.body.billing.payments.find((payment: any) => payment.folio === "FOL-PAY-001");
-    expect(createdPayment.notes).toBe("0042");
+    expect(createdPayment.notes).toBe("1000");
     const paymentId = createdPayment.id;
 
     const updated = await request(app)
@@ -281,7 +281,7 @@ describe("Aula Nova API", () => {
         paidAt: "2026-09-03",
         paymentMethod: "Transferencia",
         concept: "Colegiatura",
-        notes: "0042"
+        notes: "1000"
       });
     expect(updated.status).toBe(200);
     expect(updated.body.billing.summary.paidAmount).toBe(1500);
@@ -327,7 +327,7 @@ describe("Aula Nova API", () => {
     expect(statementSheet.A13.v).toBe("TOTAL PAGADO");
     expect(statementSheet.E13.v).toBe(2778);
     expect(statementSheet.E16.v).toBe(1500);
-    expect(statementSheet.F16.v).toBe("0042");
+    expect(statementSheet.F16.v).toBe("1000");
     expect(statementSheet.H16.v).toBe("PAGADO");
     expect(statementSheet.A34.v).toContain("Frontera, Centla, Tab.");
     expect(statementSheet.A35.v).toContain("CÓDIGO DE VERIFICACIÓN SHA-256: EC-");
@@ -335,6 +335,14 @@ describe("Aula Nova API", () => {
     expect(statementSheet.A41.v).toBe("ESTADO DE CUENTA DEL ALUMNO");
     expect(statementSheet.E52.v).toBe(101);
     expect(statementSheet.F52.v).toBe("0043");
+
+    const historicalAccount = await request(app)
+      .get(`/api/payments/student/${studentId}?throughMonth=2026-08`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(historicalAccount.status).toBe(200);
+    expect(historicalAccount.body.throughMonth).toBe("2026-08");
+    expect(historicalAccount.body.billing.payments).toHaveLength(12);
+    expect(historicalAccount.body.billing.summary.paidAmount).toBe(1278);
     expect(statementSheet.H52.v).toBe("PAGADO");
     const statementCsv = XLSX.utils.sheet_to_csv(statementSheet);
     const movementsCsv = XLSX.utils.sheet_to_csv(statementWorkbook.Sheets["Movimientos"]);

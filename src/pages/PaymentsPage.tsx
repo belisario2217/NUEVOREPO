@@ -102,6 +102,7 @@ export function PaymentsPage() {
   const [groups, setGroups] = useState<Array<{ id: number; name: string }>>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [reportMonth, setReportMonth] = useState(month);
+  const [accountMonth, setAccountMonth] = useState(month);
   const [reportGroupId, setReportGroupId] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Payment | null>(null);
@@ -113,9 +114,15 @@ export function PaymentsPage() {
     setStudents(result.records);
   }
 
-  async function loadAccount(studentId: number) {
-    const result = await api<AccountData>(`/payments/student/${studentId}`);
+  async function loadAccount(studentId: number, throughMonth = accountMonth) {
+    const result = await api<AccountData>(`/payments/student/${studentId}?throughMonth=${throughMonth}`);
     setAccount(result);
+  }
+
+  async function changeAccountMonth(value: string) {
+    const selectedMonth = value || month;
+    setAccountMonth(selectedMonth);
+    if (account) await loadAccount(account.student.studentId, selectedMonth);
   }
 
   async function loadOverview() {
@@ -254,8 +261,9 @@ export function PaymentsPage() {
           <section className="payment-account-header">
             <div><span>{account.student.program_name} | {account.student.cycle_name}</span><h2>{account.student.student_name}</h2><p>{account.student.student_number} | Grupo {account.student.group_name} | {account.student.plan_name ?? "Sin plan academico"} | Inicio cobro {account.student.billingStartDate ?? "Sin fecha"}</p></div>
             <div className="payment-account-actions">
-              {can("payments.export") && <Button type="button" variant="secondary" icon={<Download size={17} />} onClick={() => openDocument(`/payments/student/${account.student.studentId}/statement?format=pdf`)}>PDF carta</Button>}
-              {can("payments.export") && <Button type="button" variant="secondary" icon={<FileSpreadsheet size={17} />} onClick={() => download(`/payments/student/${account.student.studentId}/statement?format=xlsx`, `estado-de-cuenta-${account.student.student_number}.xlsx`)}>Excel</Button>}
+              <Field label="Consultar hasta"><input type="month" max={month} value={accountMonth} onChange={(event) => changeAccountMonth(event.target.value).catch((error) => toast.error(error instanceof Error ? error.message : "No fue posible consultar el periodo."))} /></Field>
+              {can("payments.export") && <Button type="button" variant="secondary" icon={<Download size={17} />} onClick={() => openDocument(`/payments/student/${account.student.studentId}/statement?format=pdf&throughMonth=${accountMonth}`)}>PDF carta</Button>}
+              {can("payments.export") && <Button type="button" variant="secondary" icon={<FileSpreadsheet size={17} />} onClick={() => download(`/payments/student/${account.student.studentId}/statement?format=xlsx&throughMonth=${accountMonth}`, `estado-de-cuenta-${account.student.student_number}-${accountMonth}.xlsx`)}>Excel</Button>}
               {can("payments.manage") && <Button type="button" icon={<Plus size={17} />} onClick={openCreate}>Nuevo pago</Button>}
             </div>
           </section>
@@ -296,7 +304,7 @@ export function PaymentsPage() {
             <Field label="Mes colegiatura"><input type="month" value={form.coveredMonth} onChange={(event) => setForm({ ...form, coveredMonth: event.target.value || month })} /></Field>
           </div>
           <Field label="Concepto" required><input value={form.concept} onChange={(event) => setForm({ ...form, concept: event.target.value })} required /></Field>
-          <Field label="NÚMERO DE FOLIO FÍSICO" required><input inputMode="numeric" maxLength={4} pattern="0(?:00[1-9]|0[1-9][0-9]|[1-4][0-9]{2}|500)" placeholder="0001" title="Ingresa un número del 0001 al 0500." value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value.replace(/\D/g, "").slice(0, 4) })} required /></Field>
+          <Field label="NÚMERO DE FOLIO FÍSICO" required><input inputMode="numeric" maxLength={4} pattern="(?:0{3}[1-9]|0{2}[1-9][0-9]|0[1-9][0-9]{2}|1000)" placeholder="0001" title="Ingresa un número del 0001 al 1000." value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value.replace(/\D/g, "").slice(0, 4) })} required /></Field>
           <div className="modal-actions"><Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button><Button type="submit" busy={busy}>{editing ? "Guardar cambios" : "Registrar pago"}</Button></div>
         </form>
       </Modal>

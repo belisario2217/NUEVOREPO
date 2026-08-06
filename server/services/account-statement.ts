@@ -108,7 +108,7 @@ function physicalFolio(value: string | null | undefined) {
   const text = value?.trim() ?? "";
   if (!/^\d{1,4}$/.test(text)) return "SIN FOLIO FÍSICO";
   const number = Number(text);
-  return number >= 1 && number <= 500 ? String(number).padStart(4, "0") : "SIN FOLIO FÍSICO";
+  return number >= 1 && number <= 1000 ? String(number).padStart(4, "0") : "SIN FOLIO FÍSICO";
 }
 
 function verificationCode(data: StatementAccountData, issued: IssuedParts) {

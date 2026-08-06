@@ -290,13 +290,21 @@ function academicProgress(account: StudentAccount) {
   };
 }
 
-function fullAccount(studentId: number) {
+function fullAccount(studentId: number, throughMonth?: string) {
   const account = getStudentAccount(studentId);
   if (!account) throw new ApiError(404, "No se encontro una inscripcion activa para este alumno.");
+  const billing = buildBilling(account);
+  if (throughMonth) {
+    const lastDay = `${throughMonth}-31`;
+    billing.payments = billing.payments.filter((payment) => payment.paid_at <= lastDay);
+    billing.summary.paidAmount = Number(billing.payments.reduce((sum, payment) => sum + Number(payment.amount), 0).toFixed(2));
+    billing.summary.paidInstallments = billing.payments.filter((payment) => payment.concept_type === "tuition").length;
+  }
   return {
     student: account,
     progress: academicProgress(account),
-    billing: buildBilling(account)
+    billing,
+    throughMonth: throughMonth ?? null
   };
 }
 
@@ -317,11 +325,11 @@ function statementSettings() {
 function normalizedPhysicalFolio(value: unknown) {
   const text = cleanText(value, 20);
   if (!/^\d{1,4}$/.test(text)) {
-    throw new ApiError(400, "El número de folio físico debe contener únicamente dígitos del 0001 al 0500.");
+    throw new ApiError(400, "El número de folio físico debe contener únicamente dígitos del 0001 al 1000.");
   }
   const number = Number(text);
-  if (number < 1 || number > 500) {
-    throw new ApiError(400, "El número de folio físico debe estar entre 0001 y 0500.");
+  if (number < 1 || number > 1000) {
+    throw new ApiError(400, "El número de folio físico debe estar entre 0001 y 1000.");
   }
   return String(number).padStart(4, "0");
 }
@@ -475,7 +483,7 @@ paymentsRouter.post("/import/preview", requirePermission("payments.manage"), upl
     try {
       originalFolio = normalizedPhysicalFolio(physicalFolioInput);
     } catch {
-      errors.push({ row: rowNumber, message: "El número de folio físico debe estar entre 0001 y 0500." });
+      errors.push({ row: rowNumber, message: "El número de folio físico debe estar entre 0001 y 1000." });
       return;
     }
     const amount = parseAmount(amountInput);
@@ -834,11 +842,13 @@ paymentsRouter.get("/overview", requirePermission("payments.view"), (req, res) =
 });
 
 paymentsRouter.get("/student/:id", requirePermission("payments.view"), (req, res) => {
-  res.json(fullAccount(asId(req.params.id, "Alumno")));
+  const throughMonth = req.query.throughMonth ? validMonth(req.query.throughMonth) : undefined;
+  res.json(fullAccount(asId(req.params.id, "Alumno"), throughMonth));
 });
 
 paymentsRouter.get("/student/:id/statement", requirePermission("payments.export"), async (req, res) => {
-  const data = fullAccount(asId(req.params.id, "Alumno"));
+  const throughMonth = req.query.throughMonth ? validMonth(req.query.throughMonth) : undefined;
+  const data = fullAccount(asId(req.params.id, "Alumno"), throughMonth);
   const format = cleanText(req.query.format || "pdf", 10).toLowerCase();
   const settings = statementSettings();
   if (format === "xlsx") return sendAccountStatementWorkbook(res, data, settings);
