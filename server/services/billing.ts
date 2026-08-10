@@ -23,6 +23,7 @@ export type PaymentRecord = {
   concept: string;
   concept_type: "tuition" | "enrollment" | "reenrollment" | "other";
   covered_month: string | null;
+  registration_period_number: number | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -130,7 +131,7 @@ export function listStudentPayments(source: BillingSource): PaymentRecord[] {
   return all<PaymentRecord>(
     `SELECT id, student_id, enrollment_id, plan_id, folio, amount, paid_at, payment_method, concept,
      COALESCE(concept_type, CASE WHEN lower(concept) LIKE '%colegiatura%' THEN 'tuition' ELSE 'other' END) AS concept_type,
-     covered_month, notes, created_at, updated_at
+     covered_month, registration_period_number, notes, created_at, updated_at
      FROM student_payments
      WHERE student_id = ?
      ORDER BY paid_at DESC, id DESC`,

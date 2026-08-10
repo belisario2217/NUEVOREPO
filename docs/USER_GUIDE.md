@@ -80,6 +80,19 @@ su evaluación, el alumno debe acumular al menos **80% de asistencia confirmada*
 tener un pago identificado como **Inscripción** o **Reinscripción** dentro del periodo académico.
 El estado de reinscripción también aparece en Alumnos y Cobros.
 
+## Promoción al semestre siguiente
+
+En **Administración de grupos**, cada alumno muestra sus mensualidades vencidas, el monto del
+adeudo, la reinscripción del semestre destino y el resultado de la validación. La promoción solo
+se habilita cuando están cubiertas las dos mensualidades exigibles más recientes, el alumno no
+acumula más de dos mensualidades vencidas y existe un pago de inscripción o reinscripción
+identificado específicamente para el siguiente semestre.
+
+Al registrar una inscripción o reinscripción en **Cobros**, selecciona obligatoriamente el campo
+**Semestre que ampara**. Por ejemplo, para promover de segundo a tercer semestre debe existir una
+reinscripción marcada como **3.er semestre**; una reinscripción anterior no autoriza el avance.
+Los pagos históricos que contienen el semestre en su concepto se identifican automáticamente.
+
 En **Colegiaturas mensuales**, al marcar un mes como pagado el concepto se genera con el
 mes y el año correspondientes, por ejemplo **Colegiatura agosto 2026**.
 

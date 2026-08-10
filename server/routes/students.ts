@@ -88,6 +88,7 @@ function studentSelect(where = "1 = 1") {
     CASE WHEN EXISTS (
       SELECT 1 FROM student_payments sp WHERE sp.enrollment_id = e.id
       AND (sp.concept_type IN ('enrollment', 'reenrollment') OR LOWER(sp.concept) LIKE '%inscrip%')
+      AND sp.registration_period_number = (SELECT sequence FROM curricular_periods WHERE id = e.curricular_period_id)
     ) THEN 1 ELSE 0 END AS registration_paid
     FROM students st
     JOIN student_statuses ss ON ss.id = st.status_id

@@ -29,14 +29,12 @@ export function evaluationEligibility(assignmentId: number, enrollmentId: number
   const registration = get<{ paid: number }>(
     `SELECT CASE WHEN EXISTS (
        SELECT 1 FROM student_payments sp
-       JOIN subject_assignments a ON a.id = ?
-       JOIN academic_periods ap ON ap.id = a.period_id
+       JOIN enrollments e ON e.id = sp.enrollment_id
+       JOIN curricular_periods cp ON cp.id = e.curricular_period_id
        WHERE sp.enrollment_id = ?
        AND (sp.concept_type IN ('enrollment', 'reenrollment') OR LOWER(sp.concept) LIKE '%inscrip%')
-       AND date(sp.paid_at) <= date(ap.end_date)
-       AND date(sp.paid_at) >= date(ap.start_date, '-5 months')
+       AND sp.registration_period_number = cp.sequence
      ) THEN 1 ELSE 0 END AS paid`,
-    assignmentId,
     enrollmentId
   );
   const registrationPaid = Boolean(registration?.paid);

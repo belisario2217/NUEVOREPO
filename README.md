@@ -91,6 +91,7 @@ materias, docentes, criterios, escalas y estatus no están fijados en la interfa
 - Asistencia mensual por materia y grupo, con borrador, confirmación, consulta del alumno y cálculo automático del porcentaje.
 - Restricción docente por correo: cada docente solo consulta y captura asistencia y calificaciones de sus materias asignadas.
 - Autorización de evaluación con mínimo 80% de asistencia y pago de inscripción o reinscripción del periodo.
+- Promoción semestral condicionada a las dos colegiaturas exigibles más recientes, máximo dos meses vencidos y reinscripción pagada específicamente para el semestre destino.
 - Boletas individuales y masivas en PDF.
 - Reportes de asistencia, concentrado, materias, docentes, reprobados y destacados.
 - Analíticas por grupo, programa, turno, materia, periodo y docente.

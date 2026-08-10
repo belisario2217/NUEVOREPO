@@ -173,12 +173,13 @@ describe("Aula Nova API", () => {
         amount: 1000,
         paidAt: "2026-08-10",
         paymentMethod: "Efectivo",
-        concept: "Reinscripción primer semestre",
-        conceptType: "reenrollment",
+        concept: "Inscripción primer semestre",
+        conceptType: "enrollment",
+        registrationPeriodNumber: 1,
         notes: "0998"
     });
     expect(registrationPayment.status).toBe(201);
-    expect(registrationPayment.body.billing.payments.find((payment: any) => payment.folio === "REG-ATT-001").concept_type).toBe("reenrollment");
+    expect(registrationPayment.body.billing.payments.find((payment: any) => payment.folio === "REG-ATT-001").concept_type).toBe("enrollment");
 
     const attendance = await request(app)
       .put(`/api/attendance/assignment/${assignment.id}`)
@@ -1063,5 +1064,64 @@ describe("Aula Nova API", () => {
     expect(complementaryPdf.headers["content-type"]).toContain("application/pdf");
     expect(complementaryPdf.body.length).toBeGreaterThan(3_000);
     expect(complementaryPdf.body.toString("latin1").match(/\/Type\s*\/Page\b/g)?.length).toBeGreaterThan(0);
+  });
+
+  it("promotes a student only with recent tuition and target-semester registration", async () => {
+    const blockedEnrollment = db.prepare(
+      `SELECT e.id FROM enrollments e JOIN students st ON st.id = e.student_id
+       WHERE st.student_number = 'AN26003' AND e.is_active = 1`
+    ).get() as any;
+    const blocked = await request(app)
+      .post(`/api/group-management/enrollments/${blockedEnrollment.id}/promote`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.message).toContain("dos mensualidades");
+
+    const student = db.prepare(
+      `SELECT st.id, e.id AS enrollment_id FROM students st
+       JOIN enrollments e ON e.student_id = st.id AND e.is_active = 1
+       WHERE st.student_number = 'AN26002'`
+    ).get() as any;
+    for (const [index, coveredMonth] of ["2026-06", "2026-07"].entries()) {
+      const payment = await request(app)
+        .post("/api/payments")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          studentId: student.id,
+          folio: `PROM-TUI-${index + 1}`,
+          amount: 1000,
+          paidAt: `${coveredMonth}-10`,
+          paymentMethod: "Efectivo",
+          concept: `Colegiatura ${coveredMonth}`,
+          conceptType: "tuition",
+          coveredMonth,
+          notes: String(900 + index).padStart(4, "0")
+        });
+      expect(payment.status).toBe(201);
+    }
+    const reenrollment = await request(app)
+      .post("/api/payments")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        studentId: student.id,
+        folio: "PROM-REG-2",
+        amount: 1500,
+        paidAt: "2026-07-15",
+        paymentMethod: "Efectivo",
+        concept: "Reinscripción segundo semestre",
+        conceptType: "reenrollment",
+        registrationPeriodNumber: 2,
+        notes: "0902"
+      });
+    expect(reenrollment.status).toBe(201);
+
+    const promoted = await request(app)
+      .post(`/api/group-management/enrollments/${student.enrollment_id}/promote`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(promoted.status).toBe(200);
+    const period = db.prepare(
+      `SELECT cp.sequence FROM enrollments e JOIN curricular_periods cp ON cp.id = e.curricular_period_id WHERE e.id = ?`
+    ).get(student.enrollment_id) as any;
+    expect(period.sequence).toBe(2);
   });
 });

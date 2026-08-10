@@ -3,6 +3,7 @@ import { logActivity, requirePermission, type AuthenticatedRequest } from "../au
 import { all, get, run, transaction } from "../db.js";
 import { syncEnrollmentGroupSubjects } from "../services/group-subjects.js";
 import { planMatchesProgram } from "../services/student-identity.js";
+import { promotionEligibility } from "../services/promotion-eligibility.js";
 import { ApiError, asId } from "../utils.js";
 
 export const groupManagementRouter = Router();
@@ -53,7 +54,7 @@ function groupSelect(where = "1 = 1") {
 }
 
 function groupRoster(groupId: number) {
-  return all(
+  const students = all<any>(
     `SELECT st.id, st.student_number,
       TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) AS full_name,
       st.email, st.phone, status.name AS status_name, status.color AS status_color,
@@ -74,6 +75,7 @@ function groupRoster(groupId: number) {
      ORDER BY st.last_name, st.second_last_name, st.first_name`,
     groupId
   );
+  return students.map((student) => ({ ...student, promotion: promotionEligibility(student.enrollment_id) }));
 }
 
 groupManagementRouter.get("/", requirePermission("students.view"), (_req, res) => {
@@ -93,6 +95,40 @@ groupManagementRouter.get("/:id", requirePermission("students.view"), (req, res)
   const group = get(`${groupSelect("g.id = ?")}`, id);
   if (!group) throw new ApiError(404, "No se encontró el grupo.");
   res.json({ group, students: groupRoster(id) });
+});
+
+groupManagementRouter.post("/enrollments/:id/promote", requirePermission("students.manage"), (req: AuthenticatedRequest, res) => {
+  const enrollmentId = asId(req.params.id, "Inscripción");
+  const enrollment = get<{ id: number; group_id: number }>(
+    "SELECT id, group_id FROM enrollments WHERE id = ? AND is_active = 1",
+    enrollmentId
+  );
+  if (!enrollment) throw new ApiError(404, "No se encontró la inscripción activa del alumno.");
+  const eligibility = promotionEligibility(enrollmentId);
+  if (!eligibility.eligible) {
+    throw new ApiError(409, `El alumno no puede ser promovido. ${eligibility.reasons.join(" ")}`);
+  }
+  const targetPeriod = get<{ id: number; name: string }>(
+    "SELECT id, name FROM curricular_periods WHERE sequence = ? AND is_active = 1",
+    eligibility.targetPeriodNumber
+  );
+  if (!targetPeriod) throw new ApiError(400, "No existe el semestre destino en el catálogo.");
+  run(
+    "UPDATE enrollments SET curricular_period_id = ? WHERE id = ?",
+    targetPeriod.id,
+    enrollmentId
+  );
+  syncEnrollmentGroupSubjects(enrollmentId);
+  logActivity(req, "promote-student-period", "enrollments", enrollmentId, {
+    from: eligibility.currentPeriodNumber,
+    to: eligibility.targetPeriodNumber,
+    overdueMonths: eligibility.overdueMonths,
+    overdueAmount: eligibility.overdueAmount
+  });
+  res.json({
+    message: `Alumno promovido a ${targetPeriod.name}.`,
+    students: groupRoster(enrollment.group_id)
+  });
 });
 
 groupManagementRouter.patch("/:id/context", requirePermission("students.manage"), (req: AuthenticatedRequest, res) => {

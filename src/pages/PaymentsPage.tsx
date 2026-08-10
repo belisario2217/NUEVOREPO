@@ -26,6 +26,7 @@ type Payment = {
   concept: string;
   concept_type?: "tuition" | "enrollment" | "reenrollment" | "other";
   covered_month?: string | null;
+  registration_period_number?: number | null;
   notes: string | null;
 };
 
@@ -69,6 +70,7 @@ type AccountData = {
     }>;
   };
   registration: { paid: number; paid_at: string | null; concept: string | null };
+  promotion: { eligible: boolean; targetPeriodNumber: number; overdueMonths: number; overdueAmount: number; recentTwoPaymentsCovered: boolean; registrationPaidForTarget: boolean; reasons: string[] };
 };
 
 type Overview = {
@@ -87,6 +89,7 @@ const emptyForm = {
   paymentMethod: "Transferencia",
   concept: "Colegiatura",
   coveredMonth: month,
+  registrationPeriodNumber: "",
   notes: ""
 };
 
@@ -162,6 +165,7 @@ export function PaymentsPage() {
       paymentMethod: payment.payment_method ?? "",
       concept: payment.concept,
       coveredMonth: payment.covered_month ?? month,
+      registrationPeriodNumber: payment.registration_period_number == null ? "" : String(payment.registration_period_number),
       notes: payment.notes ?? ""
     });
     setOpen(true);
@@ -187,6 +191,7 @@ export function PaymentsPage() {
         concept: form.concept,
         conceptType,
         coveredMonth: conceptType === "tuition" ? form.coveredMonth : null,
+        registrationPeriodNumber: conceptType === "enrollment" || conceptType === "reenrollment" ? Number(form.registrationPeriodNumber || (conceptType === "enrollment" ? 1 : 0)) || null : null,
         notes: form.notes
       };
       const updated = await api<AccountData>(editing ? `/payments/${editing.id}` : "/payments", {
@@ -280,7 +285,12 @@ export function PaymentsPage() {
             <div><Banknote size={21} /><span>Pagado</span><strong>{money(summary?.paidAmount)}</strong></div>
             <div><WalletCards size={21} /><span>Adeudo</span><strong>{money(summary?.balance)}</strong></div>
             <div><CalendarDays size={21} /><span>Inscripción / reinscripción</span><strong>{account.registration.paid ? "PAGADA" : "PENDIENTE"}</strong></div>
+            <div><WalletCards size={21} /><span>Adeudo vencido</span><strong>{money(account.promotion.overdueAmount)}</strong><small>{account.promotion.overdueMonths} mensualidad(es)</small></div>
             <div><ReceiptText size={21} /><span>Avance curricular</span><strong>{account.progress.percentage}%</strong></div>
+          </section>
+
+          <section className={account.promotion.eligible ? "promotion-alert promotion-ok" : "promotion-alert promotion-blocked"}>
+            <div><strong>{account.promotion.eligible ? `Promoción autorizada a ${account.promotion.targetPeriodNumber}° semestre` : "Promoción / reinscripción bloqueada"}</strong><span>{account.promotion.eligible ? "Cumple pagos recientes, adeudo permitido y reinscripción del semestre destino." : account.promotion.reasons.join(" ")}</span></div>
           </section>
 
           <section className="table-section">
@@ -310,6 +320,7 @@ export function PaymentsPage() {
             <Field label="Monto" required><input type="number" min="0.01" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} required /></Field>
             <Field label="Metodo"><input value={form.paymentMethod} onChange={(event) => setForm({ ...form, paymentMethod: event.target.value })} /></Field>
             <Field label="Mes colegiatura"><input type="month" value={form.coveredMonth} onChange={(event) => setForm({ ...form, coveredMonth: event.target.value || month })} /></Field>
+            {(form.concept.toLowerCase().includes("inscrip")) && <Field label="Semestre que ampara" required><select value={form.registrationPeriodNumber} onChange={(event) => setForm({ ...form, registrationPeriodNumber: event.target.value })} required><option value="">Seleccionar</option>{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}° semestre</option>)}</select></Field>}
           </div>
           <Field label="Concepto" required><input value={form.concept} onChange={(event) => setForm({ ...form, concept: event.target.value })} required /></Field>
           <Field label="NÚMERO DE FOLIO FÍSICO" required><input inputMode="numeric" maxLength={4} pattern="(?:0{3}[1-9]|0{2}[1-9][0-9]|0[1-9][0-9]{2}|1000)" placeholder="0001" title="Ingresa un número del 0001 al 1000." value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value.replace(/\D/g, "").slice(0, 4) })} required /></Field>

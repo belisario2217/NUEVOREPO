@@ -48,6 +48,7 @@ type PortalData = {
     }>;
   };
   registration: { paid: number; paid_at: string | null; concept: string | null };
+  promotion: { eligible: boolean; targetPeriodNumber: number; overdueMonths: number; overdueAmount: number; reasons: string[] };
   attendance: Array<{
     month: string;
     subject_code: string;
@@ -117,7 +118,7 @@ export function StudentPortalPage() {
   if (error) return <EmptyState icon={<GraduationCap size={27} />} title="Tu expediente no esta disponible" text={error} />;
   if (!data) return <div className="loading-panel">Cargando avance curricular...</div>;
 
-  const { student, progress, subjects, billing, attendance, registration } = data;
+  const { student, progress, subjects, billing, attendance, registration, promotion } = data;
 
   return (
     <div className="student-portal page-stack">
@@ -166,6 +167,10 @@ export function StudentPortalPage() {
         <div><Banknote size={21} /><span>Pagado</span><strong>{money(billing.summary.paidAmount)}</strong></div>
         <div><WalletCards size={21} /><span>Adeudo</span><strong>{money(billing.summary.balance)}</strong></div>
         <div><CalendarCheck size={21} /><span>Inscripción / reinscripción</span><strong>{registration.paid ? "PAGADA" : "PENDIENTE"}</strong></div>
+      </section>
+
+      <section className={promotion.eligible ? "promotion-alert promotion-ok" : "promotion-alert promotion-blocked"}>
+        <div><strong>{promotion.eligible ? `Puedes ser promovido al ${promotion.targetPeriodNumber}° semestre` : "Promoción de semestre no autorizada"}</strong><span>{promotion.eligible ? "Tus dos pagos recientes y la reinscripción del semestre destino están cubiertos." : promotion.reasons.join(" ")}</span></div>
       </section>
 
       <section className="table-section">

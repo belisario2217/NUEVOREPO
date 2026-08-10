@@ -3,6 +3,7 @@ import { requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get } from "../db.js";
 import { buildBilling } from "../services/billing.js";
 import { ApiError } from "../utils.js";
+import { promotionEligibility } from "../services/promotion-eligibility.js";
 
 export const portalRouter = Router();
 
@@ -83,7 +84,7 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
      p.duration_periods, pl.tuition_amount, st.id AS student_id, st.student_number,
      TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) AS student_name,
      st.email, p.name AS program_name, g.name AS group_name, sh.name AS shift_name,
-     sc.name AS cycle_name, ap.name AS current_period, pl.name AS plan_name, pl.code AS plan_code,
+     sc.name AS cycle_name, ap.name AS current_period, ap.sequence AS current_period_number, pl.name AS plan_name, pl.code AS plan_code,
      pl.version AS plan_version, l.name AS level_name
      FROM enrollments e
      JOIN students st ON st.id = e.student_id
@@ -203,8 +204,10 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
     `SELECT 1 AS paid, paid_at, concept FROM student_payments
      WHERE enrollment_id = ?
      AND (concept_type IN ('enrollment', 'reenrollment') OR LOWER(concept) LIKE '%inscrip%')
+     AND registration_period_number = ?
      ORDER BY paid_at DESC, id DESC LIMIT 1`,
-    enrollment.enrollment_id
+    enrollment.enrollment_id,
+    enrollment.current_period_number ?? -1
   );
 
   const totalCredits = subjects.reduce((sum, subject) => sum + Number(subject.credits), 0);
@@ -238,6 +241,7 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
       enrolledAt: enrollment.enrolled_at
     }),
     registration: registration ?? { paid: 0, paid_at: null, concept: null },
+    promotion: promotionEligibility(enrollment.enrollment_id),
     attendance,
     messages,
     subjects

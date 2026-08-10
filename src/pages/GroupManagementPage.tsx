@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookOpenCheck, CalendarRange, CheckCircle2, GraduationCap, Save, Search, School, UsersRound } from "lucide-react";
+import { ArrowUpCircle, BookOpenCheck, CalendarRange, CheckCircle2, GraduationCap, Save, Search, School, UsersRound } from "lucide-react";
 import { Button, EmptyState, Field, Select, StatusBadge } from "../components/Ui";
 import { useToast } from "../components/Toast";
 import { api } from "../lib/api";
@@ -44,6 +44,17 @@ type EnrolledStudent = {
   curricular_period_id: number | null;
   curricular_period_name: string | null;
   context_matches: number;
+  promotion: {
+    eligible: boolean;
+    currentPeriodNumber: number;
+    targetPeriodNumber: number;
+    targetPeriodName: string | null;
+    overdueMonths: number;
+    overdueAmount: number;
+    recentTwoPaymentsCovered: boolean;
+    registrationPaidForTarget: boolean;
+    reasons: string[];
+  };
 };
 
 type ListResponse = { groups: Group[]; cycles: Cycle[]; plans: Plan[] };
@@ -163,6 +174,24 @@ export function GroupManagementPage() {
     }
   }
 
+  async function promoteStudent(student: EnrolledStudent) {
+    if (!student.promotion.eligible) {
+      toast.error(student.promotion.reasons.join(" "));
+      return;
+    }
+    if (!window.confirm(`¿Promover a ${student.full_name} a ${student.promotion.targetPeriodName ?? `semestre ${student.promotion.targetPeriodNumber}`}?`)) return;
+    setBusy(true);
+    try {
+      const result = await api<{ message: string; students: EnrolledStudent[] }>(`/group-management/enrollments/${student.enrollment_id}/promote`, { method: "POST" });
+      setDetail((current) => current ? { ...current, students: result.students } : current);
+      toast.success(result.message);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No fue posible promover al alumno.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="group-admin-page">
       <section className="group-admin-intro">
@@ -215,12 +244,13 @@ export function GroupManagementPage() {
               <div><span>Matrícula activa</span><h3>Alumnos inscritos en {detail.group.name}</h3></div>
               <div className="search-box compact"><Search size={16} /><input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="Buscar alumno" /></div>
             </div>
-            {filteredStudents.length ? <div className="table-wrap group-roster-table"><table><thead><tr><th>Alumno</th><th>Periodo del plan</th><th>Ciclo escolar</th><th>Plan aplicado</th><th>Estado</th></tr></thead><tbody>
+            {filteredStudents.length ? <div className="table-wrap group-roster-table"><table><thead><tr><th>Alumno</th><th>Periodo del plan</th><th>Adeudo vencido</th><th>Reinscripción destino</th><th>Promoción</th><th>Estado</th></tr></thead><tbody>
               {filteredStudents.map((student) => <tr key={student.enrollment_id}>
                 <td><div className="person-cell"><div className="mini-avatar">{student.full_name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div><div><strong>{student.full_name}</strong><span>{student.student_number}</span></div></div></td>
                 <td>{student.curricular_period_name ?? "Sin definir"}</td>
-                <td>{student.cycle_name}</td>
-                <td>{student.plan_name ?? "Sin plan"}</td>
+                <td><strong className={student.promotion.overdueMonths > 2 ? "grade-fail-text" : ""}>{student.promotion.overdueMonths} mes(es)</strong><span className="table-sub">{student.promotion.overdueAmount.toLocaleString("es-MX", { style: "currency", currency: "MXN" })}</span></td>
+                <td><StatusBadge active={student.promotion.registrationPaidForTarget} label={student.promotion.registrationPaidForTarget ? `${student.promotion.targetPeriodNumber}° PAGADA` : `${student.promotion.targetPeriodNumber}° PENDIENTE`} /></td>
+                <td>{can("students.manage") ? <button className="promotion-button" disabled={busy || !student.promotion.eligible} onClick={() => promoteStudent(student)} title={student.promotion.eligible ? "Promover al semestre siguiente" : student.promotion.reasons.join(" ")}><ArrowUpCircle size={16} /> {student.promotion.eligible ? "Promover" : "Bloqueada"}</button> : <StatusBadge active={student.promotion.eligible} label={student.promotion.eligible ? "AUTORIZADA" : "BLOQUEADA"} />}</td>
                 <td><StatusBadge active={Boolean(student.context_matches)} label={student.context_matches ? "Sincronizado" : !detail.group.plan_id || !detail.group.active_cycle_id ? "Por configurar" : "Por sincronizar"} /></td>
               </tr>)}
             </tbody></table></div> : <EmptyState icon={<GraduationCap size={25} />} title={studentSearch ? "Sin coincidencias" : "Grupo sin alumnos inscritos"} text={studentSearch ? "Prueba con otro nombre o matrícula." : "Los alumnos aparecerán aquí al ser dados de alta en este grupo."} />}

@@ -10,6 +10,7 @@ import {
   type StatementInstitutionSettings
 } from "../services/account-statement.js";
 import { ApiError, asId, asNumber, cleanText, optionalText, sendCsv } from "../utils.js";
+import { promotionEligibility } from "../services/promotion-eligibility.js";
 import multer from "multer";
 
 export const paymentsRouter = Router();
@@ -23,6 +24,7 @@ type StudentAccount = BillingSource & {
   shift_name: string;
   cycle_name: string;
   current_period: string | null;
+  currentPeriodNumber: number | null;
   plan_name: string | null;
   plan_code: string | null;
   level_name: string | null;
@@ -43,6 +45,7 @@ type PaymentImportRow = {
   concept: string;
   conceptType: "tuition" | "enrollment" | "reenrollment" | "other";
   coveredMonth: string | null;
+  registrationPeriodNumber: number | null;
   notes: string | null;
   existingPaymentId: number | null;
 };
@@ -223,7 +226,7 @@ function getStudentAccount(studentId: number) {
      e.tuition_due_day AS tuitionDueDay, st.student_number,
      TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) AS student_name,
      st.email, p.name AS program_name, g.name AS group_name, sh.name AS shift_name,
-     sc.name AS cycle_name, period.name AS current_period, ap.name AS plan_name,
+     sc.name AS cycle_name, period.name AS current_period, period.sequence AS currentPeriodNumber, ap.name AS plan_name,
      ap.code AS plan_code, l.name AS level_name
      FROM enrollments e
      JOIN students st ON st.id = e.student_id
@@ -294,12 +297,14 @@ function fullAccount(studentId: number, throughMonth?: string) {
   const account = getStudentAccount(studentId);
   if (!account) throw new ApiError(404, "No se encontro una inscripcion activa para este alumno.");
   const billing = buildBilling(account);
-  const registration = get<{ paid: number; paid_at: string | null; concept: string | null }>(
-    `SELECT 1 AS paid, paid_at, concept FROM student_payments
+  const registration = get<{ paid: number; paid_at: string | null; concept: string | null; registration_period_number: number | null }>(
+    `SELECT 1 AS paid, paid_at, concept, registration_period_number FROM student_payments
      WHERE enrollment_id = ?
      AND (concept_type IN ('enrollment', 'reenrollment') OR LOWER(concept) LIKE '%inscrip%')
+     AND registration_period_number = ?
      ORDER BY paid_at DESC, id DESC LIMIT 1`,
-    account.enrollmentId ?? -1
+    account.enrollmentId ?? -1,
+    account.currentPeriodNumber ?? -1
   );
   if (throughMonth) {
     const lastDay = `${throughMonth}-31`;
@@ -312,8 +317,19 @@ function fullAccount(studentId: number, throughMonth?: string) {
     progress: academicProgress(account),
     billing,
     registration: registration ?? { paid: 0, paid_at: null, concept: null },
+    promotion: promotionEligibility(account.enrollmentId ?? -1),
     throughMonth: throughMonth ?? null
   };
+}
+
+function registrationPeriodFromConcept(value: unknown) {
+  const text = normalizeKey(cleanText(value, 160));
+  const words = ["primer", "segundo", "tercer", "cuarto", "quinto", "sexto", "septimo", "octavo", "noveno", "decimo"];
+  const wordIndex = words.findIndex((word) => text.includes(`${word}semestre`));
+  if (wordIndex >= 0) return wordIndex + 1;
+  const numeric = text.match(/semestre(\d{1,2})/) ?? text.match(/(\d{1,2})semestre/);
+  const number = numeric ? Number(numeric[1]) : 0;
+  return number >= 1 && number <= 20 ? number : null;
 }
 
 function statementSettings() {
@@ -352,6 +368,15 @@ function normalizedPaymentBody(body: any) {
   const conceptType = (["tuition", "enrollment", "reenrollment", "other"] as const).includes(requestedConceptType as any)
     ? requestedConceptType as "tuition" | "enrollment" | "reenrollment" | "other"
     : conceptTypeFromText(concept);
+  let registrationPeriodNumber: number | null = null;
+  if (conceptType === "enrollment" || conceptType === "reenrollment") {
+    const input = body.registrationPeriodNumber;
+    if (input !== "" && input != null) {
+      const number = Number(input);
+      if (!Number.isInteger(number) || number < 1 || number > 20) throw new ApiError(400, "El semestre de inscripción debe estar entre 1 y 20.");
+      registrationPeriodNumber = number;
+    } else registrationPeriodNumber = registrationPeriodFromConcept(concept) ?? (conceptType === "enrollment" ? 1 : null);
+  }
   return {
     folio,
     amount,
@@ -360,6 +385,7 @@ function normalizedPaymentBody(body: any) {
     concept,
     conceptType,
     coveredMonth: conceptType === "tuition" ? validCoveredMonth(body.coveredMonth) : null,
+    registrationPeriodNumber,
     notes: normalizedPhysicalFolio(body.notes)
   };
 }
@@ -540,6 +566,10 @@ paymentsRouter.post("/import/preview", requirePermission("payments.manage"), upl
     const concept = cleanText(value(source, "Concepto") || "Colegiatura", 120) || "Colegiatura";
     const conceptType = conceptTypeFromText(concept);
     const coveredMonth = conceptType === "tuition" ? validCoveredMonth(value(source, "Mes", "Mes colegiatura", "Colegiatura mes")) : null;
+    const registrationPeriodInput = value(source, "Semestre inscripción", "Semestre reinscripción", "Semestre", "Periodo inscripción");
+    const registrationPeriodNumber = conceptType === "enrollment" || conceptType === "reenrollment"
+      ? Number(registrationPeriodInput || registrationPeriodFromConcept(concept) || (conceptType === "enrollment" ? 1 : 0)) || null
+      : null;
     const notes = originalFolio;
     const draft: PaymentImportRow = {
       row: rowNumber,
@@ -554,6 +584,7 @@ paymentsRouter.post("/import/preview", requirePermission("payments.manage"), upl
       concept,
       conceptType,
       coveredMonth,
+      registrationPeriodNumber,
       notes,
       existingPaymentId: null
     };
@@ -594,7 +625,7 @@ paymentsRouter.post("/import/apply", requirePermission("payments.manage"), (req:
         }
         run(
           `UPDATE student_payments SET student_id = ?, enrollment_id = ?, plan_id = ?, folio = ?, amount = ?, paid_at = ?,
-           payment_method = ?, concept = ?, concept_type = ?, covered_month = ?, notes = ?, updated_by = ?,
+           payment_method = ?, concept = ?, concept_type = ?, covered_month = ?, registration_period_number = ?, notes = ?, updated_by = ?,
            updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
           item.studentId,
           account.enrollmentId,
@@ -606,6 +637,7 @@ paymentsRouter.post("/import/apply", requirePermission("payments.manage"), (req:
           item.concept,
           item.conceptType,
           item.coveredMonth,
+          item.registrationPeriodNumber,
           item.notes,
           req.user!.id,
           existingPaymentId
@@ -629,8 +661,8 @@ paymentsRouter.post("/import/apply", requirePermission("payments.manage"), (req:
       }
       const inserted = run(
         `INSERT INTO student_payments(student_id, enrollment_id, plan_id, folio, amount, paid_at,
-         payment_method, concept, concept_type, covered_month, notes, created_by, updated_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         payment_method, concept, concept_type, covered_month, registration_period_number, notes, created_by, updated_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         item.studentId,
         account.enrollmentId,
         account.planId,
@@ -641,6 +673,7 @@ paymentsRouter.post("/import/apply", requirePermission("payments.manage"), (req:
         item.concept,
         item.conceptType,
         item.coveredMonth,
+        item.registrationPeriodNumber,
         item.notes,
         req.user!.id,
         req.user!.id
@@ -902,11 +935,20 @@ paymentsRouter.post("/", requirePermission("payments.manage"), (req: Authenticat
   const account = getStudentAccount(studentId);
   if (!account) throw new ApiError(404, "No se encontro una inscripcion activa para este alumno.");
   const body = normalizedPaymentBody(req.body);
+  if (body.conceptType === "reenrollment") {
+    const promotion = promotionEligibility(account.enrollmentId ?? -1);
+    if (body.registrationPeriodNumber !== promotion.targetPeriodNumber) {
+      throw new ApiError(400, `La reinscripción debe corresponder al semestre destino ${promotion.targetPeriodNumber}.`);
+    }
+    if (promotion.overdueMonths > 2 || !promotion.recentTwoPaymentsCovered) {
+      throw new ApiError(409, `No se puede registrar la reinscripción por adeudo. ${promotion.reasons.filter((reason) => !reason.includes("reinscripción")).join(" ")}`);
+    }
+  }
   const id = transaction(() => {
     const inserted = run(
       `INSERT INTO student_payments(student_id, enrollment_id, plan_id, folio, amount, paid_at,
-       payment_method, concept, concept_type, covered_month, notes, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       payment_method, concept, concept_type, covered_month, registration_period_number, notes, created_by, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       studentId,
       account.enrollmentId,
       account.planId,
@@ -917,6 +959,7 @@ paymentsRouter.post("/", requirePermission("payments.manage"), (req: Authenticat
       body.concept,
       body.conceptType,
       body.coveredMonth,
+      body.registrationPeriodNumber,
       body.notes,
       req.user!.id,
       req.user!.id
@@ -946,7 +989,7 @@ paymentsRouter.patch("/:id", requirePermission("payments.manage"), (req: Authent
   const body = normalizedPaymentBody(req.body);
   run(
     `UPDATE student_payments SET folio = ?, amount = ?, paid_at = ?, payment_method = ?,
-     concept = ?, concept_type = ?, covered_month = ?, notes = ?, updated_by = ?,
+     concept = ?, concept_type = ?, covered_month = ?, registration_period_number = ?, notes = ?, updated_by = ?,
      updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
     body.folio,
     body.amount,
@@ -955,6 +998,7 @@ paymentsRouter.patch("/:id", requirePermission("payments.manage"), (req: Authent
     body.concept,
     body.conceptType,
     body.coveredMonth,
+    body.registrationPeriodNumber,
     body.notes,
     req.user!.id,
     id
