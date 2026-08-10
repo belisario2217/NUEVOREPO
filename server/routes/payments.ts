@@ -294,6 +294,13 @@ function fullAccount(studentId: number, throughMonth?: string) {
   const account = getStudentAccount(studentId);
   if (!account) throw new ApiError(404, "No se encontro una inscripcion activa para este alumno.");
   const billing = buildBilling(account);
+  const registration = get<{ paid: number; paid_at: string | null; concept: string | null }>(
+    `SELECT 1 AS paid, paid_at, concept FROM student_payments
+     WHERE enrollment_id = ?
+     AND (concept_type IN ('enrollment', 'reenrollment') OR LOWER(concept) LIKE '%inscrip%')
+     ORDER BY paid_at DESC, id DESC LIMIT 1`,
+    account.enrollmentId ?? -1
+  );
   if (throughMonth) {
     const lastDay = `${throughMonth}-31`;
     billing.payments = billing.payments.filter((payment) => payment.paid_at <= lastDay);
@@ -304,6 +311,7 @@ function fullAccount(studentId: number, throughMonth?: string) {
     student: account,
     progress: academicProgress(account),
     billing,
+    registration: registration ?? { paid: 0, paid_at: null, concept: null },
     throughMonth: throughMonth ?? null
   };
 }
@@ -340,7 +348,10 @@ function normalizedPaymentBody(body: any) {
   if (!folio) throw new ApiError(400, "El folio es obligatorio.");
   if (amount <= 0) throw new ApiError(400, "El monto debe ser mayor a cero.");
   const concept = cleanText(body.concept || "Colegiatura", 120) || "Colegiatura";
-  const conceptType = body.conceptType ? conceptTypeFromText(body.conceptType) : conceptTypeFromText(concept);
+  const requestedConceptType = cleanText(body.conceptType, 30).toLowerCase();
+  const conceptType = (["tuition", "enrollment", "reenrollment", "other"] as const).includes(requestedConceptType as any)
+    ? requestedConceptType as "tuition" | "enrollment" | "reenrollment" | "other"
+    : conceptTypeFromText(concept);
   return {
     folio,
     amount,

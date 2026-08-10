@@ -44,11 +44,17 @@ type RosterRow = {
   partial_1: number | null;
   partial_2: number | null;
   partial_3: number | null;
+  eligibility: {
+    eligible: boolean;
+    attendancePercentage: number;
+    registrationPaid: boolean;
+    reasons: string[];
+  };
 };
 type Roster = { assignment: Assignment; criteria: any[]; students: RosterRow[] };
 
 export function GradesPage() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -115,7 +121,7 @@ export function GradesPage() {
       await api(`/grades/assignment/${selected.id}`, {
         method: "PUT",
         body: {
-          grades: roster.students.map((student) => {
+          grades: roster.students.filter((student) => user?.roleName !== "Docente" || student.eligibility.eligible).map((student) => {
             const draft = drafts[student.enrollment_id] ?? { score: "", comments: "", components: {}, partials: ["", "", ""] };
             const componentDraft = draft.components ?? {};
             const hasComponents = Object.values(componentDraft).some((value) => value !== "");
@@ -264,6 +270,10 @@ export function GradesPage() {
   const filteredStudents = roster?.students.filter((student) =>
     !search || `${student.student_number} ${student.student_name}`.toLowerCase().includes(search.toLowerCase())
   ) ?? [];
+  const visibleGroupOptions = user?.roleName === "Docente"
+    ? Array.from(new Map(assignments.map((assignment) => [assignment.group_id, { id: assignment.group_id, name: assignment.group_name }])).values())
+    : options.groups ?? [];
+  const hasEligibleStudents = user?.roleName !== "Docente" || Boolean(roster?.students.some((student) => student.eligibility.eligible));
 
   return (
     <div className="grades-layout">
@@ -273,7 +283,7 @@ export function GradesPage() {
           {can("catalogs.manage") && <button className="icon-button primary-icon" onClick={openCreateAssignment} title={"Nueva asignaci\u00f3n"}><Plus size={18} /></button>}
         </div>
         <div className="assignment-filters">
-          <Select options={options.groups ?? []} value={filters.groupId} onChange={(event) => { const next = { ...filters, groupId: event.target.value }; setFilters(next); loadAssignments(next); }} placeholder="Todos los grupos" />
+          <Select options={visibleGroupOptions} value={filters.groupId} onChange={(event) => { const next = { ...filters, groupId: event.target.value }; setFilters(next); loadAssignments(next); }} placeholder="Todos los grupos" />
           <Select options={options.periods ?? []} value={filters.periodId} onChange={(event) => { const next = { ...filters, periodId: event.target.value }; setFilters(next); loadAssignments(next); }} placeholder="Todos los periodos" />
         </div>
         <div className="assignment-list">
@@ -309,7 +319,7 @@ export function GradesPage() {
                 {can("grades.close") && <Button variant="secondary" icon={selected.grade_entry_locked ? <LockOpen size={17} /> : <Lock size={17} />} onClick={toggleLock}>{selected.grade_entry_locked ? "Reabrir" : "Cerrar"}</Button>}
                 {can("catalogs.manage") && <Button variant="secondary" icon={<Pencil size={17} />} onClick={openEditAssignment}>Editar materia</Button>}
                 {can("catalogs.manage") && <Button variant="danger" icon={<Trash2 size={17} />} busy={busy} onClick={deleteAssignment}>Eliminar materia</Button>}
-                {can("grades.manage") && <Button icon={<Save size={17} />} busy={busy} disabled={Boolean(selected.grade_entry_locked)} onClick={saveGrades}>Guardar</Button>}
+                {can("grades.manage") && <Button icon={<Save size={17} />} busy={busy} disabled={Boolean(selected.grade_entry_locked) || !hasEligibleStudents} onClick={saveGrades}>Guardar</Button>}
               </div>
             </header>
             <div className="grade-meta">
@@ -325,6 +335,7 @@ export function GradesPage() {
                   : roster.criteria.map((criterion) => <th key={criterion.id}>{criterion.name}<small>{criterion.weight}%</small></th>)}<th>{selected.evaluation_mode === "final" ? "Calificaci\u00f3n" : "Promedio"}</th><th>Resultado</th><th>Observaciones</th><th aria-label="Historial" /></tr></thead>
                 <tbody>
                   {filteredStudents.map((student, index) => {
+                    const evaluationBlocked = user?.roleName === "Docente" && !student.eligibility.eligible;
                     const draft = drafts[student.enrollment_id] ?? { score: "", comments: "", components: {}, partials: ["", "", ""] as [string, string, string] };
                     const componentDraft = draft.components ?? {};
                     const hasAnyComponents = roster.criteria.some((criterion) => componentDraft[String(criterion.id)] !== "" && componentDraft[String(criterion.id)] !== undefined);
@@ -345,16 +356,16 @@ export function GradesPage() {
                     return (
                       <tr key={student.enrollment_id}>
                         <td>{String(index + 1).padStart(2, "0")}</td>
-                        <td><div className="person-cell"><div className="mini-avatar">{student.student_name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div><div><strong>{student.student_name}</strong><span>{student.student_number}</span></div></div></td>
+                        <td><div className="person-cell"><div className="mini-avatar">{student.student_name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div><div><strong>{student.student_name}</strong><span>{student.student_number}</span>{evaluationBlocked && <small className="evaluation-blocked">{student.eligibility.reasons.join(" ")}</small>}</div></div></td>
                         {selected.evaluation_mode === "partials"
-                          ? draft.partials.map((value, partialIndex) => <td key={partialIndex}><input className="component-input" aria-label={`Parcial ${partialIndex + 1} de ${student.student_name}`} type="number" min={selected.min_score} max={selected.max_score} step="0.1" disabled={Boolean(selected.grade_entry_locked)} value={value} onChange={(event) => { const partials = [...draft.partials] as [string, string, string]; partials[partialIndex] = event.target.value; setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, partials } }); }} /></td>)
-                          : roster.criteria.map((criterion) => <td key={criterion.id}><input className="component-input" aria-label={`${criterion.name} de ${student.student_name}`} type="number" min={selected.min_score} max={selected.max_score} step="0.1" disabled={Boolean(selected.grade_entry_locked)} value={componentDraft[String(criterion.id)] ?? ""} onChange={(event) => setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, components: { ...componentDraft, [String(criterion.id)]: event.target.value } } })} /></td>)}
+                          ? draft.partials.map((value, partialIndex) => <td key={partialIndex}><input className="component-input" aria-label={`Parcial ${partialIndex + 1} de ${student.student_name}`} type="number" min={selected.min_score} max={selected.max_score} step="0.1" disabled={Boolean(selected.grade_entry_locked) || evaluationBlocked} value={value} onChange={(event) => { const partials = [...draft.partials] as [string, string, string]; partials[partialIndex] = event.target.value; setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, partials } }); }} /></td>)
+                          : roster.criteria.map((criterion) => <td key={criterion.id}><input className="component-input" aria-label={`${criterion.name} de ${student.student_name}`} type="number" min={selected.min_score} max={selected.max_score} step="0.1" disabled={Boolean(selected.grade_entry_locked) || evaluationBlocked} value={componentDraft[String(criterion.id)] ?? ""} onChange={(event) => setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, components: { ...componentDraft, [String(criterion.id)]: event.target.value } } })} /></td>)}
                         <td>{selected.evaluation_mode !== "final"
                           ? <output className={`computed-grade ${complete ? passed ? "grade-pass" : "grade-fail" : ""}`}>{hasScore ? score.toFixed(1) : "-"}</output>
-                          : <input className={`grade-input ${hasScore ? passed ? "grade-pass" : "grade-fail" : ""}`} type="number" min={selected.min_score} max={selected.max_score} step="0.1" disabled={Boolean(selected.grade_entry_locked)} value={draft.score} onChange={(event) => setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, score: event.target.value } })} />}
+                          : <input className={`grade-input ${hasScore ? passed ? "grade-pass" : "grade-fail" : ""}`} type="number" min={selected.min_score} max={selected.max_score} step="0.1" disabled={Boolean(selected.grade_entry_locked) || evaluationBlocked} value={draft.score} onChange={(event) => setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, score: event.target.value } })} />}
                         </td>
                         <td>{!complete ? <StatusBadge label={hasScore ? "En curso" : "Pendiente"} /> : <StatusBadge active={passed} label={passed ? "Aprobada" : "Reprobada"} />}</td>
-                        <td><input className="comments-input" disabled={Boolean(selected.grade_entry_locked)} value={draft.comments} onChange={(event) => setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, comments: event.target.value } })} placeholder={"Agregar observaci\u00f3n"} /></td>
+                        <td><input className="comments-input" disabled={Boolean(selected.grade_entry_locked) || evaluationBlocked} value={draft.comments} onChange={(event) => setDrafts({ ...drafts, [student.enrollment_id]: { ...draft, comments: event.target.value } })} placeholder={"Agregar observaci\u00f3n"} /></td>
                         <td><button className="icon-button" disabled={!student.grade_id} onClick={() => showHistory(student.grade_id)} title="Ver historial"><History size={17} /></button></td>
                       </tr>
                     );

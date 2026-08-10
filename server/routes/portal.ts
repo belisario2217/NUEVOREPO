@@ -184,6 +184,28 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
     enrollment.student_id,
     enrollment.group_id
   );
+  const attendance = all<any>(
+    `SELECT am.month, s.code AS subject_code, s.name AS subject_name,
+     am.scheduled_classes, COALESCE(ar.attended_classes, 0) AS attended_classes,
+     CASE WHEN am.scheduled_classes > 0
+       THEN ROUND(COALESCE(ar.attended_classes, 0) * 100.0 / am.scheduled_classes, 1)
+       ELSE 0 END AS percentage
+     FROM attendance_months am
+     JOIN subject_assignments a ON a.id = am.assignment_id
+     JOIN subjects s ON s.id = a.subject_id
+     LEFT JOIN attendance_records ar ON ar.attendance_month_id = am.id AND ar.enrollment_id = ?
+     WHERE a.group_id = ? AND am.status = 'confirmed'
+     ORDER BY am.month DESC, s.name`,
+    enrollment.enrollment_id,
+    enrollment.group_id
+  );
+  const registration = get<{ paid: number; paid_at: string | null; concept: string | null }>(
+    `SELECT 1 AS paid, paid_at, concept FROM student_payments
+     WHERE enrollment_id = ?
+     AND (concept_type IN ('enrollment', 'reenrollment') OR LOWER(concept) LIKE '%inscrip%')
+     ORDER BY paid_at DESC, id DESC LIMIT 1`,
+    enrollment.enrollment_id
+  );
 
   const totalCredits = subjects.reduce((sum, subject) => sum + Number(subject.credits), 0);
   const earnedCredits = subjects
@@ -215,6 +237,8 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
       tuitionDueDay: enrollment.tuition_due_day,
       enrolledAt: enrollment.enrolled_at
     }),
+    registration: registration ?? { paid: 0, paid_at: null, concept: null },
+    attendance,
     messages,
     subjects
   });

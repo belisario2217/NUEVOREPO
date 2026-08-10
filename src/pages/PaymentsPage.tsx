@@ -68,6 +68,7 @@ type AccountData = {
       status: "paid" | "partial" | "pending";
     }>;
   };
+  registration: { paid: number; paid_at: string | null; concept: string | null };
 };
 
 type Overview = {
@@ -171,6 +172,12 @@ export function PaymentsPage() {
     if (!account) return;
     setBusy(true);
     try {
+      const normalizedConcept = form.concept.toLowerCase();
+      const conceptType = normalizedConcept.includes("reinscrip")
+        ? "reenrollment"
+        : normalizedConcept.includes("inscrip")
+          ? "enrollment"
+          : normalizedConcept.includes("colegiatura") ? "tuition" : "other";
       const payload = {
         studentId: account.student.studentId,
         folio: form.folio,
@@ -178,8 +185,8 @@ export function PaymentsPage() {
         paidAt: form.paidAt,
         paymentMethod: form.paymentMethod,
         concept: form.concept,
-        conceptType: form.concept.toLowerCase().includes("colegiatura") ? "tuition" : "other",
-        coveredMonth: form.concept.toLowerCase().includes("colegiatura") ? form.coveredMonth : null,
+        conceptType,
+        coveredMonth: conceptType === "tuition" ? form.coveredMonth : null,
         notes: form.notes
       };
       const updated = await api<AccountData>(editing ? `/payments/${editing.id}` : "/payments", {
@@ -272,6 +279,7 @@ export function PaymentsPage() {
             <div><CalendarDays size={21} /><span>Colegiaturas</span><strong>{summary?.paidInstallments}<small> / {summary?.expectedPayments}</small></strong></div>
             <div><Banknote size={21} /><span>Pagado</span><strong>{money(summary?.paidAmount)}</strong></div>
             <div><WalletCards size={21} /><span>Adeudo</span><strong>{money(summary?.balance)}</strong></div>
+            <div><CalendarDays size={21} /><span>Inscripción / reinscripción</span><strong>{account.registration.paid ? "PAGADA" : "PENDIENTE"}</strong></div>
             <div><ReceiptText size={21} /><span>Avance curricular</span><strong>{account.progress.percentage}%</strong></div>
           </section>
 

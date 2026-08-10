@@ -68,6 +68,18 @@ Al registrar o editar un pago, captura el **NÚMERO DE FOLIO FÍSICO** impreso e
 usando cuatro dígitos del **0001 al 1000**. El sistema conserva por separado su identificador
 interno; los estados de cuenta muestran únicamente el folio físico.
 
+## Asistencia y autorización para evaluar
+
+La sección **Asistencia** muestra al docente únicamente sus materias y grupos. El correo de su
+usuario debe coincidir con el correo capturado en el catálogo de docentes. Para cada mes se
+captura el total de clases impartidas y el número de asistencias de cada alumno; puede guardarse
+como borrador y posteriormente confirmarse.
+
+El alumno consulta los meses confirmados desde **Mi avance**. Para que un docente pueda capturar
+su evaluación, el alumno debe acumular al menos **80% de asistencia confirmada** en la materia y
+tener un pago identificado como **Inscripción** o **Reinscripción** dentro del periodo académico.
+El estado de reinscripción también aparece en Alumnos y Cobros.
+
 En **Colegiaturas mensuales**, al marcar un mes como pagado el concepto se genera con el
 mes y el año correspondientes, por ejemplo **Colegiatura agosto 2026**.
 

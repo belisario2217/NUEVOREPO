@@ -84,7 +84,11 @@ function studentSelect(where = "1 = 1") {
     e.id AS enrollment_id, e.program_id, p.name AS program_name, e.shift_id, sh.name AS shift_name,
     e.group_id, g.name AS group_name, g.study_modality, e.cycle_id, sc.name AS cycle_name,
     e.period_id AS evaluation_period_id, e.curricular_period_id, cp.name AS curricular_period_name,
-    e.plan_id, pl.name AS plan_name, pl.matriculation_code
+    e.plan_id, pl.name AS plan_name, pl.matriculation_code,
+    CASE WHEN EXISTS (
+      SELECT 1 FROM student_payments sp WHERE sp.enrollment_id = e.id
+      AND (sp.concept_type IN ('enrollment', 'reenrollment') OR LOWER(sp.concept) LIKE '%inscrip%')
+    ) THEN 1 ELSE 0 END AS registration_paid
     FROM students st
     JOIN student_statuses ss ON ss.id = st.status_id
     LEFT JOIN enrollments e ON e.student_id = st.id AND e.is_active = 1

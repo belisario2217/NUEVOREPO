@@ -567,6 +567,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .partial-empty, .muted-cell { color: #9fb3c8; }
 .grade-pass-text { color: var(--green); }
 .grade-fail-text { color: var(--red); }
+.evaluation-blocked { display: block; max-width: 250px; margin-top: 3px; color: var(--red); font-size: 8px; line-height: 1.25; }
 .curricular-admin { background: white; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .curricular-admin .section-heading { padding: 16px 18px 0; }
 .curricular-admin .section-heading p { margin-top: 4px; color: var(--muted); font-size: 10px; }
@@ -606,6 +607,17 @@ tbody tr:last-child td { border-bottom: 0; }
 .payment-account-actions, .inline-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
 .inline-actions .icon-button { width: 32px; height: 32px; }
 .payment-account-actions .button-secondary { color: var(--navy); }
+
+.attendance-layout { min-height: calc(100vh - 190px); display: grid; grid-template-columns: 290px minmax(0, 1fr); background: white; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.attendance-main { min-width: 0; }
+.attendance-heading { min-height: 92px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.attendance-heading span { color: var(--blue); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.attendance-heading h2 { margin-top: 3px; color: var(--navy); font-size: 16px; }
+.attendance-heading p { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.attendance-controls { display: flex; align-items: end; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding: 12px 18px; background: #f8fafb; border-bottom: 1px solid var(--line); }
+.attendance-controls .field { margin-right: auto; width: 190px; }
+.attendance-main td input { min-height: 32px; padding: 5px 7px; font-size: 10px; }
+@media (max-width: 900px) { .attendance-layout { grid-template-columns: 1fr; } .attendance-layout .assignment-pane { max-height: 300px; border-right: 0; border-bottom: 1px solid var(--line); } }
 
 .settings-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; align-items: start; }
 .settings-main { background: white; border: 1px solid var(--line); border-radius: 6px; }

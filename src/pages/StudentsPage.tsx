@@ -38,6 +38,7 @@ type Student = {
   plan_id: number | null;
   plan_name: string | null;
   study_modality: "escolarizado" | "semiescolarizado" | "complementario" | null;
+  registration_paid: number;
 };
 
 type Option = {
@@ -375,7 +376,7 @@ export function StudentsPage() {
         {records.length ? (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Alumno</th><th>Matrícula</th><th>Programa</th><th>Turno / grupo</th><th>Estatus</th><th>Contacto</th><th aria-label="Acciones" /></tr></thead>
+              <thead><tr><th>Alumno</th><th>Matrícula</th><th>Programa</th><th>Turno / grupo</th><th>Inscripción</th><th>Estatus</th><th>Contacto</th><th aria-label="Acciones" /></tr></thead>
               <tbody>
                 {records.map((student) => (
                   <tr key={student.id} className={!student.is_active ? "row-muted" : ""}>
@@ -383,6 +384,7 @@ export function StudentsPage() {
                     <td><code>{student.student_number}</code></td>
                     <td><strong className="table-main">{student.program_name}</strong><span className="table-sub">{student.cycle_name}</span></td>
                     <td><strong className="table-main">{student.shift_name}</strong><span className="table-sub">Grupo {student.group_name}</span></td>
+                    <td><StatusBadge active={Boolean(student.registration_paid)} label={student.registration_paid ? "REINSCRITO" : "PENDIENTE"} /></td>
                     <td><span className="custom-status" style={{ "--status-color": student.status_color } as React.CSSProperties}>{student.status_name}</span></td>
                     <td><strong className="table-main">{student.email || "Sin correo"}</strong><span className="table-sub">{student.phone || "Sin teléfono"}</span></td>
                     <td className="action-cell">

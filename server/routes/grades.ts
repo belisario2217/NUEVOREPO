@@ -4,6 +4,8 @@ import { logActivity, requirePermission, type AuthenticatedRequest } from "../au
 import { all, get, run, transaction } from "../db.js";
 import { createPdf, parseWorkbook, pdfTable, sendWorkbook, type TabularRow } from "../services/files.js";
 import { syncGroupSubjects } from "../services/group-subjects.js";
+import { evaluationEligibility } from "../services/evaluation-eligibility.js";
+import { assertTeacherAssignment, isTeacherUser, teacherIdForUser } from "../services/teacher-scope.js";
 import { ApiError, asId, asNumber, cleanText, optionalText, sendCsv } from "../utils.js";
 
 type GradeImportRow = {
@@ -85,7 +87,8 @@ function saveGrade(
   comments: string | null,
   reason: string | null,
   components?: Record<string, unknown>,
-  partials?: Record<string, unknown>
+  partials?: Record<string, unknown>,
+  enforceEligibility = false
 ) {
   const assignment = get<{ min_score: number; max_score: number; passing_score: number; decimals: number; grade_entry_locked: number; evaluation_mode: string }>(
     `${assignmentSelect("a.id = ?")}`,
@@ -103,6 +106,13 @@ function saveGrade(
     assignmentId
   );
   if (!belongs) throw new ApiError(400, "El alumno no pertenece al grupo de la materia.");
+  const hasEvaluation = score !== null
+    || Boolean(partials && Object.values(partials).some((value) => value !== "" && value != null))
+    || Boolean(components && Object.values(components).some((value) => value !== "" && value != null));
+  if (enforceEligibility && hasEvaluation) {
+    const eligibility = evaluationEligibility(assignmentId, enrollmentId);
+    if (!eligibility.eligible) throw new ApiError(409, `El alumno no puede ser evaluado. ${eligibility.reasons.join(" ")}`);
+  }
 
   const current = get<{ id: number; final_score: number | null; comments: string | null; partial_1: number | null; partial_2: number | null; partial_3: number | null }>(
     "SELECT id, final_score, comments, partial_1, partial_2, partial_3 FROM grades WHERE enrollment_id = ? AND assignment_id = ?",
@@ -234,9 +244,14 @@ function saveGrade(
   return gradeId;
 }
 
-gradesRouter.get("/assignments", requirePermission("grades.view"), (req, res) => {
+gradesRouter.get("/assignments", requirePermission("grades.view"), (req: AuthenticatedRequest, res) => {
   const clauses = ["a.is_active = 1"];
   const params: number[] = [];
+  const scopedTeacherId = teacherIdForUser(req.user);
+  if (scopedTeacherId != null) {
+    clauses.push("a.teacher_id = ?");
+    params.push(scopedTeacherId);
+  }
   [["a.group_id", req.query.groupId], ["a.teacher_id", req.query.teacherId], ["a.period_id", req.query.periodId]].forEach(([column, input]) => {
     if (input) {
       clauses.push(`${column} = ?`);
@@ -334,8 +349,9 @@ gradesRouter.patch("/assignments/:id", requirePermission("catalogs.manage"), (re
   res.json(updated);
 });
 
-gradesRouter.get("/assignment/:id/roster", requirePermission("grades.view"), (req, res) => {
+gradesRouter.get("/assignment/:id/roster", requirePermission("grades.view"), (req: AuthenticatedRequest, res) => {
   const assignmentId = asId(req.params.id, "AsignaciÃ³n");
+  assertTeacherAssignment(req.user, assignmentId);
   const assignment = get(`${assignmentSelect("a.id = ?")}`, assignmentId);
   if (!assignment) throw new ApiError(404, "No se encontrÃ³ la materia asignada.");
   const criteria = all(
@@ -369,12 +385,17 @@ gradesRouter.get("/assignment/:id/roster", requirePermission("grades.view"), (re
   res.json({
     assignment,
     criteria,
-    students: students.map((student) => ({ ...student, components: componentsByEnrollment[student.enrollment_id] ?? {} }))
+    students: students.map((student) => ({
+      ...student,
+      components: componentsByEnrollment[student.enrollment_id] ?? {},
+      eligibility: evaluationEligibility(assignmentId, student.enrollment_id)
+    }))
   });
 });
 
 gradesRouter.put("/assignment/:id", requirePermission("grades.manage"), (req: AuthenticatedRequest, res) => {
   const assignmentId = asId(req.params.id, "AsignaciÃ³n");
+  assertTeacherAssignment(req.user, assignmentId);
   const rows = Array.isArray(req.body.grades) ? req.body.grades : [];
   if (!rows.length) throw new ApiError(400, "No hay calificaciones para guardar.");
   transaction(() => {
@@ -389,7 +410,8 @@ gradesRouter.put("/assignment/:id", requirePermission("grades.manage"), (req: Au
         optionalText(item.comments, 1000),
         optionalText(item.reason, 300) ?? "Captura manual",
         item.components && typeof item.components === "object" ? item.components : undefined,
-        item.partials && typeof item.partials === "object" ? item.partials : undefined
+        item.partials && typeof item.partials === "object" ? item.partials : undefined,
+        isTeacherUser(req.user)
       );
     });
   });
@@ -435,11 +457,15 @@ gradesRouter.delete("/assignment/:id", requirePermission("catalogs.manage"), (re
   res.status(204).end();
 });
 
-gradesRouter.get("/history/:gradeId", requirePermission("grades.view"), (req, res) => {
+gradesRouter.get("/history/:gradeId", requirePermission("grades.view"), (req: AuthenticatedRequest, res) => {
+  const gradeId = asId(req.params.gradeId, "CalificaciÃ³n");
+  const grade = get<{ assignment_id: number }>("SELECT assignment_id FROM grades WHERE id = ?", gradeId);
+  if (!grade) throw new ApiError(404, "No se encontrÃ³ la calificaciÃ³n.");
+  assertTeacherAssignment(req.user, grade.assignment_id);
   res.json(all(
     `SELECT h.*, u.full_name AS changed_by_name FROM grade_history h
      JOIN users u ON u.id = h.changed_by WHERE h.grade_id = ? ORDER BY h.changed_at DESC`,
-    asId(req.params.gradeId, "CalificaciÃ³n")
+    gradeId
   ));
 });
 
@@ -600,9 +626,14 @@ gradesRouter.post("/import/apply", requirePermission("grades.import"), (req: Aut
   res.json({ message: "Calificaciones importadas.", created, updated, ignored, errors: preview.errors.length });
 });
 
-gradesRouter.get("/export/file", requirePermission("grades.export"), (req, res) => {
+gradesRouter.get("/export/file", requirePermission("grades.export"), (req: AuthenticatedRequest, res) => {
   const clauses = ["1 = 1"];
   const params: number[] = [];
+  const scopedTeacherId = teacherIdForUser(req.user);
+  if (scopedTeacherId != null) {
+    clauses.push("a.teacher_id = ?");
+    params.push(scopedTeacherId);
+  }
   const filters: Array<[string, unknown]> = [
     ["e.student_id", req.query.studentId], ["e.group_id", req.query.groupId],
     ["e.shift_id", req.query.shiftId], ["e.program_id", req.query.programId],

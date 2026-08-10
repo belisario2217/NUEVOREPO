@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Award, Banknote, BookOpenCheck, CircleGauge, Clock3, GraduationCap, KeyRound, ReceiptText, WalletCards } from "lucide-react";
+import { Award, Banknote, BookOpenCheck, CalendarCheck, CircleGauge, Clock3, GraduationCap, KeyRound, ReceiptText, WalletCards } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../components/Toast";
@@ -47,6 +47,15 @@ type PortalData = {
       notes: string | null;
     }>;
   };
+  registration: { paid: number; paid_at: string | null; concept: string | null };
+  attendance: Array<{
+    month: string;
+    subject_code: string;
+    subject_name: string;
+    scheduled_classes: number;
+    attended_classes: number;
+    percentage: number;
+  }>;
   subjects: Array<{
     plan_subject_id: number | null;
     subject_id: number;
@@ -108,7 +117,7 @@ export function StudentPortalPage() {
   if (error) return <EmptyState icon={<GraduationCap size={27} />} title="Tu expediente no esta disponible" text={error} />;
   if (!data) return <div className="loading-panel">Cargando avance curricular...</div>;
 
-  const { student, progress, subjects, billing } = data;
+  const { student, progress, subjects, billing, attendance, registration } = data;
 
   return (
     <div className="student-portal page-stack">
@@ -156,7 +165,7 @@ export function StudentPortalPage() {
         <div><ReceiptText size={21} /><span>Colegiaturas</span><strong>{billing.summary.paidInstallments}<small> / {billing.summary.expectedPayments}</small></strong></div>
         <div><Banknote size={21} /><span>Pagado</span><strong>{money(billing.summary.paidAmount)}</strong></div>
         <div><WalletCards size={21} /><span>Adeudo</span><strong>{money(billing.summary.balance)}</strong></div>
-        <div><Clock3 size={21} /><span>Pendientes</span><strong>{billing.summary.pendingInstallments}</strong></div>
+        <div><CalendarCheck size={21} /><span>Inscripción / reinscripción</span><strong>{registration.paid ? "PAGADA" : "PENDIENTE"}</strong></div>
       </section>
 
       <section className="table-section">
@@ -182,6 +191,14 @@ export function StudentPortalPage() {
           </table>
         </div>
         {!billing.payments.length && <EmptyState icon={<ReceiptText size={25} />} title="Sin pagos registrados" text="Aun no hay pagos capturados en tu expediente." />}
+      </section>
+
+      <section className="table-section">
+        <header className="section-heading"><div><span>Control académico</span><h2>Mi asistencia mensual</h2></div><strong className="table-sub">Mínimo para evaluación: 80%</strong></header>
+        <div className="table-wrap"><table><thead><tr><th>Mes</th><th>Materia</th><th>Asistencias</th><th>Clases impartidas</th><th>Porcentaje</th><th>Condición</th></tr></thead><tbody>
+          {attendance.map((row) => <tr key={`${row.month}-${row.subject_code}`}><td>{row.month}</td><td><strong className="table-main">{row.subject_name}</strong><span className="table-sub">{row.subject_code}</span></td><td>{row.attended_classes}</td><td>{row.scheduled_classes}</td><td><strong className={row.percentage >= 80 ? "grade-pass-text" : "grade-fail-text"}>{Number(row.percentage).toFixed(1)}%</strong></td><td><StatusBadge active={row.percentage >= 80} label={row.percentage >= 80 ? "CUMPLE" : "NO CUMPLE"} /></td></tr>)}
+        </tbody></table></div>
+        {!attendance.length && <EmptyState icon={<CalendarCheck size={25} />} title="Asistencia pendiente" text="Tu docente aún no ha confirmado la asistencia mensual." />}
       </section>
 
       <section className="portal-subjects">

@@ -88,6 +88,9 @@ materias, docentes, criterios, escalas y estatus no están fijados en la interfa
 - Exportación de alumnos y calificaciones a XLSX, CSV y PDF.
 - Estados de cuenta individuales en PDF carta y Excel, con identidad institucional, total pagado y código de verificación.
 - Folio físico de cobro del 0001 al 1000, independiente del identificador interno generado por el sistema.
+- Asistencia mensual por materia y grupo, con borrador, confirmación, consulta del alumno y cálculo automático del porcentaje.
+- Restricción docente por correo: cada docente solo consulta y captura asistencia y calificaciones de sus materias asignadas.
+- Autorización de evaluación con mínimo 80% de asistencia y pago de inscripción o reinscripción del periodo.
 - Boletas individuales y masivas en PDF.
 - Reportes de asistencia, concentrado, materias, docentes, reprobados y destacados.
 - Analíticas por grupo, programa, turno, materia, periodo y docente.

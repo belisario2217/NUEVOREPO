@@ -124,6 +124,92 @@ describe("Aula Nova API", () => {
     expect([grade.partial_1, grade.partial_2, grade.partial_3]).toEqual([8, 9, 10]);
   });
 
+  it("restricts teachers to their assignments and confirms monthly attendance", async () => {
+    const roles = await request(app).get("/api/users/roles/list").set("Authorization", `Bearer ${token}`);
+    const teacherRole = roles.body.find((role: any) => role.name === "Docente");
+    const createdUser = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        fullName: "Laura Méndez Ortega",
+        email: "laura.mendez@aulanova.edu.mx",
+        password: "Docente123!",
+        roleId: teacherRole.id,
+        isActive: true
+      });
+    expect(createdUser.status).toBe(201);
+    const teacherLogin = await request(app)
+      .post("/api/auth/login")
+      .send({ email: "laura.mendez@aulanova.edu.mx", password: "Docente123!" });
+    expect(teacherLogin.status).toBe(200);
+    const teacherToken = teacherLogin.body.token;
+
+    const assignments = await request(app)
+      .get("/api/grades/assignments")
+      .set("Authorization", `Bearer ${teacherToken}`);
+    expect(assignments.status).toBe(200);
+    expect(assignments.body.length).toBeGreaterThan(0);
+    expect(assignments.body.every((assignment: any) => assignment.teacher_name === "Laura Méndez Ortega")).toBe(true);
+    const allAssignments = await request(app).get("/api/grades/assignments").set("Authorization", `Bearer ${token}`);
+    const anotherTeacherAssignment = allAssignments.body.find((item: any) => item.teacher_name !== "Laura Méndez Ortega");
+    if (anotherTeacherAssignment) {
+      const forbiddenRoster = await request(app)
+        .get(`/api/grades/assignment/${anotherTeacherAssignment.id}/roster`)
+        .set("Authorization", `Bearer ${teacherToken}`);
+      expect(forbiddenRoster.status).toBe(403);
+    }
+    const assignment = assignments.body.find((item: any) => item.subject_code === "COM-101") ?? assignments.body[0];
+    const roster = await request(app)
+      .get(`/api/grades/assignment/${assignment.id}/roster`)
+      .set("Authorization", `Bearer ${teacherToken}`);
+    const target = roster.body.students[0];
+
+    const registrationPayment = await request(app)
+      .post("/api/payments")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        studentId: target.student_id,
+        folio: "REG-ATT-001",
+        amount: 1000,
+        paidAt: "2026-08-10",
+        paymentMethod: "Efectivo",
+        concept: "Reinscripción primer semestre",
+        conceptType: "reenrollment",
+        notes: "0998"
+    });
+    expect(registrationPayment.status).toBe(201);
+    expect(registrationPayment.body.billing.payments.find((payment: any) => payment.folio === "REG-ATT-001").concept_type).toBe("reenrollment");
+
+    const attendance = await request(app)
+      .put(`/api/attendance/assignment/${assignment.id}`)
+      .set("Authorization", `Bearer ${teacherToken}`)
+      .send({
+        month: "2026-08",
+        scheduledClasses: 10,
+        confirm: true,
+        records: roster.body.students.map((student: any) => ({
+          enrollmentId: student.enrollment_id,
+          attendedClasses: student.enrollment_id === target.enrollment_id ? 8 : 7
+        }))
+      });
+    expect(attendance.status).toBe(200);
+
+    const refreshed = await request(app)
+      .get(`/api/grades/assignment/${assignment.id}/roster`)
+      .set("Authorization", `Bearer ${teacherToken}`);
+    const eligibleStudent = refreshed.body.students.find((student: any) => student.enrollment_id === target.enrollment_id);
+    expect(eligibleStudent.eligibility.attendancePercentage).toBe(80);
+    expect(eligibleStudent.eligibility.registrationPaid).toBe(true);
+    expect(eligibleStudent.eligibility.eligible).toBe(true);
+    expect(refreshed.body.students.find((student: any) => student.enrollment_id !== target.enrollment_id).eligibility.eligible).toBe(false);
+
+    const grade = await request(app)
+      .put(`/api/grades/assignment/${assignment.id}`)
+      .set("Authorization", `Bearer ${teacherToken}`)
+      .send({ grades: [{ enrollmentId: target.enrollment_id, partials: { partial1: 9, partial2: 9, partial3: 9 } }] });
+    expect(grade.status).toBe(200);
+  });
+
   it("creates a complete academic plan with mandatory and elective subjects", async () => {
     const programs = await request(app).get("/api/catalogs/programs").set("Authorization", `Bearer ${token}`);
     const programId = programs.body.records[0].id;
