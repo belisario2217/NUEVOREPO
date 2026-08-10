@@ -108,13 +108,16 @@ export function PaymentsPage() {
   const [reportMonth, setReportMonth] = useState(month);
   const [accountMonth, setAccountMonth] = useState(month);
   const [reportGroupId, setReportGroupId] = useState("");
+  const [appliedReportGroupId, setAppliedReportGroupId] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Payment | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);
 
   async function searchStudents(query = search) {
-    const result = await api<{ records: StudentResult[] }>(`/payments/students?search=${encodeURIComponent(query)}`);
+    const params = new URLSearchParams({ search: query });
+    if (appliedReportGroupId) params.set("groupId", appliedReportGroupId);
+    const result = await api<{ records: StudentResult[] }>(`/payments/students?${params}`);
     setStudents(result.records);
   }
 
@@ -130,7 +133,9 @@ export function PaymentsPage() {
   }
 
   async function loadOverview() {
-    const result = await api<Overview>(`/payments/overview?month=${reportMonth}`);
+    const params = new URLSearchParams({ month: reportMonth });
+    if (appliedReportGroupId) params.set("groupId", appliedReportGroupId);
+    const result = await api<Overview>(`/payments/overview?${params}`);
     setOverview(result);
   }
 
@@ -227,9 +232,22 @@ export function PaymentsPage() {
 
   const reportQuery = useMemo(() => {
     const params = new URLSearchParams({ month: reportMonth });
-    if (reportGroupId) params.set("groupId", reportGroupId);
+    if (appliedReportGroupId) params.set("groupId", appliedReportGroupId);
     return params.toString();
-  }, [reportMonth, reportGroupId]);
+  }, [reportMonth, appliedReportGroupId]);
+
+  async function applyGroupFilter() {
+    setAppliedReportGroupId(reportGroupId);
+    const params = new URLSearchParams({ search });
+    if (reportGroupId) params.set("groupId", reportGroupId);
+    const [studentResult, overviewResult] = await Promise.all([
+      api<{ records: StudentResult[] }>(`/payments/students?${params}`),
+      api<Overview>(`/payments/overview?month=${reportMonth}${reportGroupId ? `&groupId=${reportGroupId}` : ""}`)
+    ]);
+    setStudents(studentResult.records);
+    setOverview(overviewResult);
+    setAccount(null);
+  }
 
   const summary = account?.billing.summary;
 
@@ -245,6 +263,7 @@ export function PaymentsPage() {
         <div className="toolbar-actions">
           <Field label="Mes"><input type="month" value={reportMonth} onChange={(event) => setReportMonth(event.target.value || month)} /></Field>
           <Field label="Grupo"><Select value={reportGroupId} onChange={(event) => setReportGroupId(event.target.value)} options={groups} placeholder="Todos" /></Field>
+          <Button type="button" variant="secondary" onClick={() => applyGroupFilter().catch((error) => toast.error(error instanceof Error ? error.message : "No fue posible filtrar."))}>Filtrar</Button>
           <Button type="button" variant="secondary" icon={<Download size={17} />} onClick={() => openDocument(`/payments/report?${reportQuery}&format=pdf`)}>Estado de cuenta</Button>
           <Button type="button" variant="secondary" icon={<FileSpreadsheet size={17} />} onClick={() => download(`/payments/report?${reportQuery}&format=xlsx`, `estado-de-cuenta-${reportMonth}.xlsx`)}>Excel</Button>
         </div>
@@ -283,14 +302,8 @@ export function PaymentsPage() {
           <section className="payment-metrics">
             <div><CalendarDays size={21} /><span>Colegiaturas</span><strong>{summary?.paidInstallments}<small> / {summary?.expectedPayments}</small></strong></div>
             <div><Banknote size={21} /><span>Pagado</span><strong>{money(summary?.paidAmount)}</strong></div>
-            <div><WalletCards size={21} /><span>Adeudo</span><strong>{money(summary?.balance)}</strong></div>
             <div><CalendarDays size={21} /><span>Inscripción / reinscripción</span><strong>{account.registration.paid ? "PAGADA" : "PENDIENTE"}</strong></div>
-            <div><WalletCards size={21} /><span>Adeudo vencido</span><strong>{money(account.promotion.overdueAmount)}</strong><small>{account.promotion.overdueMonths} mensualidad(es)</small></div>
             <div><ReceiptText size={21} /><span>Avance curricular</span><strong>{account.progress.percentage}%</strong></div>
-          </section>
-
-          <section className={account.promotion.eligible ? "promotion-alert promotion-ok" : "promotion-alert promotion-blocked"}>
-            <div><strong>{account.promotion.eligible ? `Promoción autorizada a ${account.promotion.targetPeriodNumber}° semestre` : "Promoción / reinscripción bloqueada"}</strong><span>{account.promotion.eligible ? "Cumple pagos recientes, adeudo permitido y reinscripción del semestre destino." : account.promotion.reasons.join(" ")}</span></div>
           </section>
 
           <section className="table-section">

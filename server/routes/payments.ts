@@ -297,7 +297,12 @@ function fullAccount(studentId: number, throughMonth?: string) {
   const account = getStudentAccount(studentId);
   if (!account) throw new ApiError(404, "No se encontro una inscripcion activa para este alumno.");
   const billing = buildBilling(account);
-  const registration = get<{ paid: number; paid_at: string | null; concept: string | null; registration_period_number: number | null }>(
+  const manualRegistration = get<{ status: string; paid_at: string | null; physical_folio: string | null; period_number: number }>(
+    "SELECT status, paid_at, physical_folio, period_number FROM student_registration_status WHERE enrollment_id = ? AND period_number = ?",
+    account.enrollmentId ?? -1,
+    account.currentPeriodNumber ?? -1
+  );
+  const paymentRegistration = get<{ paid: number; paid_at: string | null; concept: string | null; registration_period_number: number | null }>(
     `SELECT 1 AS paid, paid_at, concept, registration_period_number FROM student_payments
      WHERE enrollment_id = ?
      AND (concept_type IN ('enrollment', 'reenrollment') OR LOWER(concept) LIKE '%inscrip%')
@@ -306,6 +311,9 @@ function fullAccount(studentId: number, throughMonth?: string) {
     account.enrollmentId ?? -1,
     account.currentPeriodNumber ?? -1
   );
+  const registration = manualRegistration
+    ? { paid: manualRegistration.status === "paid" ? 1 : 0, paid_at: manualRegistration.paid_at, concept: "Registro administrativo", registration_period_number: manualRegistration.period_number }
+    : paymentRegistration;
   if (throughMonth) {
     const lastDay = `${throughMonth}-31`;
     billing.payments = billing.payments.filter((payment) => payment.paid_at <= lastDay);
@@ -456,6 +464,7 @@ function reportRows(month: string, groupId?: number) {
 
 paymentsRouter.get("/students", requirePermission("payments.view"), (req, res) => {
   const search = cleanText(req.query.search, 120);
+  const groupId = req.query.groupId ? asId(req.query.groupId, "Grupo") : null;
   const like = `%${search}%`;
   res.json({
     records: all(
@@ -469,9 +478,11 @@ paymentsRouter.get("/students", requirePermission("payments.view"), (req, res) =
        JOIN groups g ON g.id = e.group_id
        JOIN shifts sh ON sh.id = e.shift_id
        LEFT JOIN academic_plans ap ON ap.id = e.plan_id
-       WHERE st.is_active = 1 AND (? = '' OR st.student_number LIKE ? OR
+       WHERE st.is_active = 1 AND (? IS NULL OR e.group_id = ?) AND (? = '' OR st.student_number LIKE ? OR
          TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) LIKE ?)
        ORDER BY st.last_name, st.first_name LIMIT 20`,
+      groupId,
+      groupId,
       search,
       like,
       like
@@ -867,7 +878,8 @@ paymentsRouter.patch("/tuition-grid", requirePermission("tuition.manage"), (req:
 
 paymentsRouter.get("/overview", requirePermission("payments.view"), (req, res) => {
   const month = validMonth(req.query.month);
-  const records = reportRows(month);
+  const groupId = req.query.groupId ? asId(req.query.groupId, "Grupo") : undefined;
+  const records = reportRows(month, groupId);
   const groups = records.reduce<Record<string, { groupName: string; count: number; amount: number }>>((map, row) => {
     const key = row.group_name ?? "Sin grupo";
     map[key] ??= { groupName: key, count: 0, amount: 0 };
@@ -941,7 +953,7 @@ paymentsRouter.post("/", requirePermission("payments.manage"), (req: Authenticat
       throw new ApiError(400, `La reinscripción debe corresponder al semestre destino ${promotion.targetPeriodNumber}.`);
     }
     if (promotion.overdueMonths > 2 || !promotion.recentTwoPaymentsCovered) {
-      throw new ApiError(409, `No se puede registrar la reinscripción por adeudo. ${promotion.reasons.filter((reason) => !reason.includes("reinscripción")).join(" ")}`);
+      throw new ApiError(409, "La cuenta no cumple las validaciones automáticas para registrar la reinscripción. Usa Gestión de alumnos si necesitas autorizarla manualmente.");
     }
   }
   const id = transaction(() => {

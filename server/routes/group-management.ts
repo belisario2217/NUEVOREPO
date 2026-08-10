@@ -13,6 +13,7 @@ type GroupContext = {
   program_id: number;
   program_name: string;
   shift_id: number;
+  curricular_period_id: number | null;
 };
 
 type PlanContext = {
@@ -35,11 +36,13 @@ function groupSelect(where = "1 = 1") {
     g.cycle_id AS formation_cycle_id, formation.name AS formation_cycle_name,
     g.active_cycle_id, active_cycle.name AS active_cycle_name,
     g.plan_id, plan.name AS plan_name, plan.version AS plan_version,
+    g.curricular_period_id, group_period.name AS curricular_period_name, group_period.sequence AS curricular_period_number,
     COUNT(DISTINCT CASE WHEN e.is_active = 1 AND st.is_active = 1 THEN st.id END) AS student_count,
     COUNT(DISTINCT CASE WHEN e.is_active = 1 AND st.is_active = 1 AND (
       g.active_cycle_id IS NULL OR g.plan_id IS NULL
       OR e.cycle_id <> g.active_cycle_id
       OR COALESCE(e.plan_id, 0) <> g.plan_id
+      OR COALESCE(e.curricular_period_id, 0) <> COALESCE(g.curricular_period_id, 0)
     ) THEN st.id END) AS mismatch_count
     FROM groups g
     JOIN programs p ON p.id = g.program_id
@@ -47,6 +50,7 @@ function groupSelect(where = "1 = 1") {
     JOIN school_cycles formation ON formation.id = g.cycle_id
     LEFT JOIN school_cycles active_cycle ON active_cycle.id = g.active_cycle_id
     LEFT JOIN academic_plans plan ON plan.id = g.plan_id
+    LEFT JOIN curricular_periods group_period ON group_period.id = g.curricular_period_id
     LEFT JOIN enrollments e ON e.group_id = g.id
     LEFT JOIN students st ON st.id = e.student_id
     WHERE ${where}
@@ -86,7 +90,8 @@ groupManagementRouter.get("/", requirePermission("students.view"), (_req, res) =
       `SELECT ap.id, ap.name, ap.version, ap.program_id, p.name AS program_name
        FROM academic_plans ap JOIN programs p ON p.id = ap.program_id
        WHERE ap.is_active = 1 ORDER BY p.name, ap.name, ap.version DESC`
-    )
+    ),
+    periods: all("SELECT id, name, sequence FROM curricular_periods WHERE is_active = 1 ORDER BY sequence")
   });
 });
 
@@ -105,7 +110,8 @@ groupManagementRouter.post("/enrollments/:id/promote", requirePermission("studen
   );
   if (!enrollment) throw new ApiError(404, "No se encontró la inscripción activa del alumno.");
   const eligibility = promotionEligibility(enrollmentId);
-  if (!eligibility.eligible) {
+  const forced = req.body?.force === true;
+  if (!eligibility.eligible && !forced) {
     throw new ApiError(409, `El alumno no puede ser promovido. ${eligibility.reasons.join(" ")}`);
   }
   const targetPeriod = get<{ id: number; name: string }>(
@@ -119,14 +125,15 @@ groupManagementRouter.post("/enrollments/:id/promote", requirePermission("studen
     enrollmentId
   );
   syncEnrollmentGroupSubjects(enrollmentId);
-  logActivity(req, "promote-student-period", "enrollments", enrollmentId, {
+  logActivity(req, forced ? "force-promote-student-period" : "promote-student-period", "enrollments", enrollmentId, {
     from: eligibility.currentPeriodNumber,
     to: eligibility.targetPeriodNumber,
     overdueMonths: eligibility.overdueMonths,
-    overdueAmount: eligibility.overdueAmount
+    overdueAmount: eligibility.overdueAmount,
+    forced
   });
   res.json({
-    message: `Alumno promovido a ${targetPeriod.name}.`,
+    message: forced ? `Alumno promovido manualmente a ${targetPeriod.name}.` : `Alumno promovido a ${targetPeriod.name}.`,
     students: groupRoster(enrollment.group_id)
   });
 });
@@ -137,12 +144,16 @@ groupManagementRouter.patch("/:id/context", requirePermission("students.manage")
   const planId = asId(req.body.planId, "Plan académico");
   const syncStudents = req.body.syncStudents !== false;
   const group = get<GroupContext>(
-    `SELECT g.id, g.program_id, p.name AS program_name, g.shift_id
+    `SELECT g.id, g.program_id, p.name AS program_name, g.shift_id, g.curricular_period_id
      FROM groups g JOIN programs p ON p.id = g.program_id
      WHERE g.id = ? AND g.is_active = 1`,
     id
   );
   if (!group) throw new ApiError(404, "El grupo no existe o está inactivo.");
+  const curricularPeriodId = req.body.curricularPeriodId
+    ? asId(req.body.curricularPeriodId, "Semestre del grupo")
+    : group.curricular_period_id ?? get<{ id: number }>("SELECT id FROM curricular_periods WHERE is_active = 1 ORDER BY sequence LIMIT 1")?.id;
+  if (!curricularPeriodId) throw new ApiError(400, "Selecciona el semestre actual del grupo.");
   if (!get("SELECT id FROM school_cycles WHERE id = ? AND is_active = 1", activeCycleId)) {
     throw new ApiError(400, "El ciclo escolar seleccionado no existe o está inactivo.");
   }
@@ -156,13 +167,19 @@ groupManagementRouter.patch("/:id/context", requirePermission("students.manage")
   if (!planMatchesProgram(plan, { id: group.program_id, name: group.program_name })) {
     throw new ApiError(400, "El plan académico no corresponde al programa del grupo.");
   }
+  const curricularPeriod = get<{ id: number; sequence: number }>(
+    "SELECT id, sequence FROM curricular_periods WHERE id = ? AND is_active = 1",
+    curricularPeriodId
+  );
+  if (!curricularPeriod) throw new ApiError(400, "El semestre seleccionado no existe o está inactivo.");
 
   const updatedStudents = transaction(() => {
     run(
-      `UPDATE groups SET active_cycle_id = ?, plan_id = ?, updated_at = CURRENT_TIMESTAMP
+      `UPDATE groups SET active_cycle_id = ?, plan_id = ?, curricular_period_id = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       activeCycleId,
       planId,
+      curricularPeriodId,
       id
     );
     if (!syncStudents) return 0;
@@ -196,14 +213,14 @@ groupManagementRouter.patch("/:id/context", requirePermission("students.manage")
         run("UPDATE enrollments SET is_active = 0 WHERE student_id = ? AND id <> ? AND is_active = 1", enrollment.student_id, enrollmentId);
         run(
           `UPDATE enrollments SET program_id = ?, shift_id = ?, group_id = ?, cycle_id = ?,
-           period_id = COALESCE(period_id, ?), curricular_period_id = COALESCE(curricular_period_id, ?),
+           period_id = COALESCE(period_id, ?), curricular_period_id = ?,
            plan_id = ?, is_active = 1 WHERE id = ?`,
           group.program_id,
           group.shift_id,
           id,
           activeCycleId,
           evaluationPeriodId,
-          enrollment.curricular_period_id,
+          curricularPeriodId,
           planId,
           enrollmentId
         );
@@ -211,12 +228,13 @@ groupManagementRouter.patch("/:id/context", requirePermission("students.manage")
         run("UPDATE enrollments SET is_active = 0 WHERE student_id = ? AND id <> ? AND is_active = 1", enrollment.student_id, enrollment.id);
         run(
           `UPDATE enrollments SET program_id = ?, shift_id = ?, group_id = ?, cycle_id = ?,
-           period_id = ?, plan_id = ?, is_active = 1 WHERE id = ?`,
+           period_id = ?, curricular_period_id = ?, plan_id = ?, is_active = 1 WHERE id = ?`,
           group.program_id,
           group.shift_id,
           id,
           activeCycleId,
           enrollment.cycle_id === activeCycleId ? get<{ period_id: number | null }>("SELECT period_id FROM enrollments WHERE id = ?", enrollment.id)?.period_id ?? evaluationPeriodId : evaluationPeriodId,
+          curricularPeriodId,
           planId,
           enrollment.id
         );
@@ -227,7 +245,7 @@ groupManagementRouter.patch("/:id/context", requirePermission("students.manage")
     return updated;
   });
 
-  logActivity(req, "update-academic-context", "groups", id, { activeCycleId, planId, syncStudents, updatedStudents });
+  logActivity(req, "update-academic-context", "groups", id, { activeCycleId, planId, curricularPeriodId, syncStudents, updatedStudents });
   res.json({
     group: get(`${groupSelect("g.id = ?")}`, id),
     students: groupRoster(id),

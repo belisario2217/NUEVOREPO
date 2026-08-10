@@ -1124,4 +1124,46 @@ describe("Aula Nova API", () => {
     ).get(student.enrollment_id) as any;
     expect(period.sequence).toBe(2);
   });
+
+  it("allows audited manual registration, financial clearance and forced promotion", async () => {
+    const student = db.prepare(
+      `SELECT st.id, e.id AS enrollment_id FROM students st
+       JOIN enrollments e ON e.student_id = st.id AND e.is_active = 1
+       WHERE st.student_number = 'AN26004'`
+    ).get() as any;
+
+    const clearance = await request(app)
+      .post(`/api/students/${student.id}/financial-clearance`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ cleared: true, note: "Cuenta revisada por control escolar" });
+    expect(clearance.status).toBe(200);
+    expect(clearance.body.financial_clearance_override).toBe(1);
+
+    const registration = await request(app)
+      .post(`/api/students/${student.id}/registration-status`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ status: "paid", periodNumber: 2, physicalFolio: "0998", amount: 1500, paidAt: "2026-08-09" });
+    expect(registration.status).toBe(200);
+    expect(registration.body.registration_paid).toBe(1);
+    expect(registration.body.curricular_period_number).toBe(2);
+    expect(registration.body.registration_folio).toBe("0998");
+
+    const payment = db.prepare(
+      "SELECT amount, notes, registration_period_number FROM student_payments WHERE student_id = ? AND concept_type = 'reenrollment' ORDER BY id DESC LIMIT 1"
+    ).get(student.id) as any;
+    expect(payment.amount).toBe(1500);
+    expect(payment.notes).toBe("0998");
+    expect(payment.registration_period_number).toBe(2);
+
+    const blockedStudent = db.prepare(
+      `SELECT e.id FROM enrollments e JOIN students st ON st.id = e.student_id
+       WHERE st.student_number = 'AN26003' AND e.is_active = 1`
+    ).get() as any;
+    const forced = await request(app)
+      .post(`/api/group-management/enrollments/${blockedStudent.id}/promote`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ force: true });
+    expect(forced.status).toBe(200);
+    expect(forced.body.message).toContain("manualmente");
+  });
 });

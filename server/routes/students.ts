@@ -6,7 +6,7 @@ import { createPdf, parseWorkbook, pdfTable, sendWorkbook, type TabularRow } fro
 import { syncEnrollmentGroupSubjects } from "../services/group-subjects.js";
 import { provisionStudentAccount } from "../services/student-account.js";
 import { generateStudentIdentity } from "../services/student-identity.js";
-import { ApiError, asId, cleanText, optionalText, sendCsv } from "../utils.js";
+import { ApiError, asId, asNumber, cleanText, optionalText, sendCsv } from "../utils.js";
 
 type StudentImportRow = {
   row: number;
@@ -84,12 +84,21 @@ function studentSelect(where = "1 = 1") {
     e.id AS enrollment_id, e.program_id, p.name AS program_name, e.shift_id, sh.name AS shift_name,
     e.group_id, g.name AS group_name, g.study_modality, e.cycle_id, sc.name AS cycle_name,
     e.period_id AS evaluation_period_id, e.curricular_period_id, cp.name AS curricular_period_name,
+    cp.sequence AS curricular_period_number, e.financial_clearance_override, e.financial_override_note,
     e.plan_id, pl.name AS plan_name, pl.matriculation_code,
-    CASE WHEN EXISTS (
+    CASE WHEN COALESCE((
+      SELECT CASE WHEN srs.status = 'paid' THEN 1 ELSE 0 END
+      FROM student_registration_status srs
+      WHERE srs.enrollment_id = e.id AND srs.period_number = cp.sequence
+      LIMIT 1
+    ), CASE WHEN EXISTS (
       SELECT 1 FROM student_payments sp WHERE sp.enrollment_id = e.id
       AND (sp.concept_type IN ('enrollment', 'reenrollment') OR LOWER(sp.concept) LIKE '%inscrip%')
       AND sp.registration_period_number = (SELECT sequence FROM curricular_periods WHERE id = e.curricular_period_id)
-    ) THEN 1 ELSE 0 END AS registration_paid
+    ) THEN 1 ELSE 0 END) = 1 THEN 1 ELSE 0 END AS registration_paid,
+    (SELECT srs.physical_folio FROM student_registration_status srs WHERE srs.enrollment_id = e.id AND srs.period_number = cp.sequence) AS registration_folio,
+    (SELECT srs.amount FROM student_registration_status srs WHERE srs.enrollment_id = e.id AND srs.period_number = cp.sequence) AS registration_amount,
+    (SELECT srs.paid_at FROM student_registration_status srs WHERE srs.enrollment_id = e.id AND srs.period_number = cp.sequence) AS registration_paid_at
     FROM students st
     JOIN student_statuses ss ON ss.id = st.status_id
     LEFT JOIN enrollments e ON e.student_id = st.id AND e.is_active = 1
@@ -148,6 +157,107 @@ studentsRouter.get("/record/:id", requirePermission("students.view"), (req, res)
   const record = get(`${studentSelect("st.id = ?")}`, asId(req.params.id, "Alumno"));
   if (!record) throw new ApiError(404, "No se encontró el alumno.");
   res.json(record);
+});
+
+function physicalFolio(value: unknown) {
+  const digits = cleanText(value, 4).replace(/\D/g, "");
+  const number = Number(digits);
+  if (!Number.isInteger(number) || number < 1 || number > 1000) {
+    throw new ApiError(400, "El folio físico debe estar entre 0001 y 1000.");
+  }
+  return String(number).padStart(4, "0");
+}
+
+studentsRouter.post("/:id/registration-status", requirePermission("students.manage"), (req: AuthenticatedRequest, res) => {
+  const studentId = asId(req.params.id, "Alumno");
+  const status = req.body.status === "paid" ? "paid" : req.body.status === "pending" ? "pending" : null;
+  if (!status) throw new ApiError(400, "Selecciona si la inscripción está pagada o pendiente.");
+  const periodNumber = Math.trunc(asNumber(req.body.periodNumber, "Semestre"));
+  const enrollment = get<any>(
+    `SELECT e.id, e.plan_id, e.group_id, p.duration_periods, st.student_number
+     FROM enrollments e JOIN students st ON st.id = e.student_id JOIN programs p ON p.id = e.program_id
+     WHERE e.student_id = ? AND e.is_active = 1 ORDER BY e.id DESC LIMIT 1`,
+    studentId
+  );
+  if (!enrollment) throw new ApiError(404, "El alumno no tiene una inscripción activa.");
+  if (periodNumber < 1 || periodNumber > Number(enrollment.duration_periods ?? 20)) {
+    throw new ApiError(400, "El semestre no corresponde a la duración del programa.");
+  }
+  const curricularPeriod = get<{ id: number; name: string }>(
+    "SELECT id, name FROM curricular_periods WHERE sequence = ? AND is_active = 1",
+    periodNumber
+  );
+  if (!curricularPeriod) throw new ApiError(400, "El semestre seleccionado no existe en el catálogo.");
+  const folio = status === "paid" ? physicalFolio(req.body.physicalFolio) : null;
+  const amount = status === "paid" ? asNumber(req.body.amount, "Monto pagado") : null;
+  const paidAt = status === "paid" ? cleanText(req.body.paidAt, 10) : null;
+  if (status === "paid" && (Number(amount) <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(paidAt!))) {
+    throw new ApiError(400, "Captura un monto mayor a cero y una fecha de pago válida.");
+  }
+
+  transaction(() => {
+    const previous = get<{ payment_id: number | null }>(
+      "SELECT payment_id FROM student_registration_status WHERE enrollment_id = ? AND period_number = ?",
+      enrollment.id,
+      periodNumber
+    );
+    let paymentId = previous?.payment_id ?? null;
+    if (status === "pending" && paymentId) {
+      run("DELETE FROM student_payments WHERE id = ?", paymentId);
+      paymentId = null;
+    }
+    if (status === "paid") {
+      const conceptType = periodNumber === 1 ? "enrollment" : "reenrollment";
+      const concept = periodNumber === 1 ? "Inscripción primer semestre" : `Reinscripción semestre ${periodNumber}`;
+      if (paymentId) {
+        run(
+          `UPDATE student_payments SET plan_id = ?, amount = ?, paid_at = ?, concept = ?, concept_type = ?,
+           registration_period_number = ?, notes = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          enrollment.plan_id, amount!, paidAt!, concept, conceptType, periodNumber, folio!, req.user!.id, paymentId
+        );
+      } else {
+        const inserted = run(
+          `INSERT INTO student_payments(student_id, enrollment_id, plan_id, folio, amount, paid_at, payment_method,
+           concept, concept_type, registration_period_number, notes, created_by, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, 'Registro manual en Alumnos', ?, ?, ?, ?, ?, ?)`,
+          studentId, enrollment.id, enrollment.plan_id,
+          `ADM-REG-${enrollment.student_number}-${periodNumber}-${Date.now()}`,
+          amount!, paidAt!, concept, conceptType, periodNumber, folio!, req.user!.id, req.user!.id
+        );
+        paymentId = Number(inserted.lastInsertRowid);
+      }
+    }
+    run(
+      `INSERT INTO student_registration_status(enrollment_id, period_number, status, physical_folio, amount, paid_at, payment_id, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(enrollment_id, period_number) DO UPDATE SET status = excluded.status,
+       physical_folio = excluded.physical_folio, amount = excluded.amount, paid_at = excluded.paid_at,
+       payment_id = excluded.payment_id, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP`,
+      enrollment.id, periodNumber, status, folio, amount, paidAt, paymentId, req.user!.id
+    );
+    run("UPDATE enrollments SET curricular_period_id = ? WHERE id = ?", curricularPeriod.id, enrollment.id);
+    syncEnrollmentGroupSubjects(enrollment.id);
+  });
+  logActivity(req, "manual-registration-status", "enrollments", enrollment.id, { studentId, status, periodNumber, folio, amount, paidAt });
+  res.json(get(`${studentSelect("st.id = ?")}`, studentId));
+});
+
+studentsRouter.post("/:id/financial-clearance", requirePermission("students.manage"), (req: AuthenticatedRequest, res) => {
+  const studentId = asId(req.params.id, "Alumno");
+  const cleared = Boolean(req.body.cleared);
+  const note = optionalText(req.body.note, 300);
+  const enrollment = get<{ id: number }>(
+    "SELECT id FROM enrollments WHERE student_id = ? AND is_active = 1 ORDER BY id DESC LIMIT 1",
+    studentId
+  );
+  if (!enrollment) throw new ApiError(404, "El alumno no tiene una inscripción activa.");
+  run(
+    `UPDATE enrollments SET financial_clearance_override = ?, financial_override_note = ?,
+     financial_override_updated_at = CURRENT_TIMESTAMP, financial_override_updated_by = ? WHERE id = ?`,
+    cleared ? 1 : 0, cleared ? note : null, req.user!.id, enrollment.id
+  );
+  logActivity(req, "financial-clearance-override", "enrollments", enrollment.id, { studentId, cleared, note });
+  res.json(get(`${studentSelect("st.id = ?")}`, studentId));
 });
 
 studentsRouter.post("/", requirePermission("students.manage"), (req: AuthenticatedRequest, res) => {

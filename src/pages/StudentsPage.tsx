@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, FileText, MoreHorizontal,
+  BadgeCheck, ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, FileText, MoreHorizontal,
   Pencil, Plus, Power, Printer, Search, Upload, UserRound, UsersRound, Trash2, TriangleAlert
 } from "lucide-react";
 import { api, download, openDocument } from "../lib/api";
@@ -35,10 +35,16 @@ type Student = {
   cycle_name: string;
   curricular_period_id: number | null;
   curricular_period_name: string | null;
+  curricular_period_number: number | null;
   plan_id: number | null;
   plan_name: string | null;
   study_modality: "escolarizado" | "semiescolarizado" | "complementario" | null;
   registration_paid: number;
+  registration_folio: string | null;
+  registration_amount: number | null;
+  registration_paid_at: string | null;
+  financial_clearance_override: number;
+  financial_override_note: string | null;
 };
 
 type Option = {
@@ -50,6 +56,7 @@ type Option = {
   cycle_id?: number;
   active_cycle_id?: number;
   plan_id?: number;
+  curricular_period_id?: number;
   duration_periods?: number;
   sequence?: number;
   study_modality?: "escolarizado" | "semiescolarizado" | "complementario";
@@ -96,6 +103,8 @@ export function StudentsPage() {
   const [menuFor, setMenuFor] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<Student | null>(null);
   const [createdAccess, setCreatedAccess] = useState<{ studentName: string; studentNumber: string; email: string; temporaryPassword: string } | null>(null);
+  const [registrationStudent, setRegistrationStudent] = useState<Student | null>(null);
+  const [registrationForm, setRegistrationForm] = useState({ status: "paid", periodNumber: "", physicalFolio: "", amount: "", paidAt: new Date().toISOString().slice(0, 10) });
 
   async function load(page = 1, current = appliedFilters) {
     const query = new URLSearchParams({ page: String(page), pageSize: "20" });
@@ -117,6 +126,7 @@ export function StudentsPage() {
         cycle_id: item.cycle_id,
         active_cycle_id: item.active_cycle_id,
         plan_id: item.plan_id,
+        curricular_period_id: item.curricular_period_id,
         duration_periods: item.duration_periods,
         sequence: item.sequence,
         study_modality: item.study_modality
@@ -125,6 +135,13 @@ export function StudentsPage() {
     api<PlanOption[]>("/plans").then((records) => setPlans(records.filter((plan) => plan.is_active)));
     load();
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      load(1, { ...appliedFilters, search: filters.search }).catch(() => undefined);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [filters.search]);
 
   const filterGroups = useMemo(() => {
     const groups = options.groups ?? [];
@@ -229,7 +246,8 @@ export function StudentsPage() {
       programId,
       shiftId: String(group.shift_id ?? form.shiftId),
       cycleId: group.active_cycle_id ? String(group.active_cycle_id) : form.cycleId,
-      planId: groupPlan ? String(groupPlan.id) : planMatches ? form.planId : ""
+      planId: groupPlan ? String(groupPlan.id) : planMatches ? form.planId : "",
+      curricularPeriodId: group.curricular_period_id ? String(group.curricular_period_id) : form.curricularPeriodId
     });
   }
 
@@ -296,6 +314,49 @@ export function StudentsPage() {
       load(pagination.page);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No fue posible actualizar el estatus.");
+    }
+    setMenuFor(null);
+  }
+
+  function openRegistration(student: Student) {
+    setRegistrationStudent(student);
+    setRegistrationForm({
+      status: student.registration_paid ? "paid" : "pending",
+      periodNumber: String(student.curricular_period_number ?? 1),
+      physicalFolio: student.registration_folio ?? "",
+      amount: student.registration_amount == null ? "" : String(student.registration_amount),
+      paidAt: student.registration_paid_at ?? new Date().toISOString().slice(0, 10)
+    });
+    setMenuFor(null);
+  }
+
+  async function saveRegistration(event: React.FormEvent) {
+    event.preventDefault();
+    if (!registrationStudent) return;
+    setBusy(true);
+    try {
+      await api(`/students/${registrationStudent.id}/registration-status`, { method: "POST", body: registrationForm });
+      toast.success(registrationForm.status === "paid" ? "Reinscripción y semestre actualizados." : "Inscripción marcada como pendiente.");
+      setRegistrationStudent(null);
+      await load(pagination.page);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No fue posible actualizar la reinscripción.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleFinancialClearance(student: Student) {
+    const cleared = !student.financial_clearance_override;
+    const note = cleared ? window.prompt("Motivo de la regularización administrativa (opcional):", "Cuenta verificada manualmente") : null;
+    if (cleared && note === null) return;
+    if (!cleared && !window.confirm("¿Volver a usar el cálculo automático para este alumno?")) return;
+    try {
+      await api(`/students/${student.id}/financial-clearance`, { method: "POST", body: { cleared, note } });
+      toast.success(cleared ? "Cuenta marcada como regularizada." : "Se restauró el cálculo automático.");
+      await load(pagination.page);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No fue posible actualizar la cuenta.");
     }
     setMenuFor(null);
   }
@@ -384,7 +445,7 @@ export function StudentsPage() {
                     <td><code>{student.student_number}</code></td>
                     <td><strong className="table-main">{student.program_name}</strong><span className="table-sub">{student.cycle_name}</span></td>
                     <td><strong className="table-main">{student.shift_name}</strong><span className="table-sub">Grupo {student.group_name}</span></td>
-                    <td><StatusBadge active={Boolean(student.registration_paid)} label={student.registration_paid ? "REINSCRITO" : "PENDIENTE"} /></td>
+                    <td><StatusBadge active={Boolean(student.registration_paid)} label={student.registration_paid ? "REINSCRITO" : "PENDIENTE"} />{student.financial_clearance_override ? <span className="table-sub">Cuenta regularizada</span> : null}</td>
                     <td><span className="custom-status" style={{ "--status-color": student.status_color } as React.CSSProperties}>{student.status_name}</span></td>
                     <td><strong className="table-main">{student.email || "Sin correo"}</strong><span className="table-sub">{student.phone || "Sin teléfono"}</span></td>
                     <td className="action-cell">
@@ -392,6 +453,8 @@ export function StudentsPage() {
                       {menuFor === student.id && (
                         <div className="row-menu">
                           {can("students.manage") && <button onClick={() => openEdit(student)}><Pencil size={16} /> Editar</button>}
+                          {can("students.manage") && <button onClick={() => openRegistration(student)}><BadgeCheck size={16} /> Modificar reinscripción</button>}
+                          {can("students.manage") && <button onClick={() => toggleFinancialClearance(student)}><BadgeCheck size={16} /> {student.financial_clearance_override ? "Usar cálculo automático" : "Marcar cuenta regularizada"}</button>}
                           {can("students.manage") && <button onClick={() => toggle(student)}><Power size={16} /> {student.is_active ? "Dar de baja" : "Reactivar"}</button>}
                           <button onClick={() => openDocument(`/reports/report-card.pdf?studentId=${student.id}`)}><Printer size={16} /> Generar boleta</button>
                           {can("students.manage") && <button className="danger-menu-item" onClick={() => { setDeleting(student); setMenuFor(null); }}><Trash2 size={16} /> Eliminar definitivamente</button>}
@@ -439,6 +502,22 @@ export function StudentsPage() {
             <Field label="Observaciones"><input value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>
           </div>
           <div className="modal-actions"><Button type="button" variant="ghost" onClick={() => setFormOpen(false)}>Cancelar</Button><Button type="submit" busy={busy}>{editing ? "Guardar cambios" : "Registrar alumno"}</Button></div>
+        </form>
+      </Modal>
+
+      <Modal open={Boolean(registrationStudent)} onClose={() => setRegistrationStudent(null)} title="Modificar inscripción o reinscripción" size="small">
+        <form onSubmit={saveRegistration}>
+          <p className="modal-copy">Actualiza manualmente el estado y el semestre de {registrationStudent?.full_name}. Esta acción queda registrada en auditoría.</p>
+          <div className="form-grid two">
+            <Field label="Estado" required><select value={registrationForm.status} onChange={(event) => setRegistrationForm({ ...registrationForm, status: event.target.value })}><option value="paid">REINSCRITO / PAGADO</option><option value="pending">PENDIENTE</option></select></Field>
+            <Field label="Semestre promovido" required><select value={registrationForm.periodNumber} onChange={(event) => setRegistrationForm({ ...registrationForm, periodNumber: event.target.value })} required>{(options.semesters ?? []).map((period) => <option key={period.id} value={period.sequence}>{period.name}</option>)}</select></Field>
+            {registrationForm.status === "paid" && <>
+              <Field label="Folio físico" required><input inputMode="numeric" maxLength={4} value={registrationForm.physicalFolio} onChange={(event) => setRegistrationForm({ ...registrationForm, physicalFolio: event.target.value.replace(/\D/g, "").slice(0, 4) })} placeholder="0001" required /></Field>
+              <Field label="Monto pagado" required><input type="number" min="0.01" step="0.01" value={registrationForm.amount} onChange={(event) => setRegistrationForm({ ...registrationForm, amount: event.target.value })} required /></Field>
+              <Field label="Fecha de pago" required><input type="date" value={registrationForm.paidAt} onChange={(event) => setRegistrationForm({ ...registrationForm, paidAt: event.target.value })} required /></Field>
+            </>}
+          </div>
+          <div className="modal-actions"><Button type="button" variant="ghost" onClick={() => setRegistrationStudent(null)}>Cancelar</Button><Button type="submit" busy={busy}>Guardar estado</Button></div>
         </form>
       </Modal>
 

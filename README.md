@@ -92,6 +92,9 @@ materias, docentes, criterios, escalas y estatus no están fijados en la interfa
 - Restricción docente por correo: cada docente solo consulta y captura asistencia y calificaciones de sus materias asignadas.
 - Autorización de evaluación con mínimo 80% de asistencia y pago de inscripción o reinscripción del periodo.
 - Promoción semestral condicionada a las dos colegiaturas exigibles más recientes, máximo dos meses vencidos y reinscripción pagada específicamente para el semestre destino.
+- Corrección administrativa desde Alumnos: reinscripción manual con folio, monto, fecha y semestre, cuenta regularizada y promoción forzada auditable.
+- Semestre vigente configurable por grupo, con sincronización masiva de sus alumnos.
+- Colegiaturas exigibles desde el día 10, calculadas desde el inicio de cobro de cada generación; las pantallas muestran pagos realizados, no saldos de adeudo.
 - Boletas individuales y masivas en PDF.
 - Reportes de asistencia, concentrado, materias, docentes, reprobados y destacados.
 - Analíticas por grupo, programa, turno, materia, periodo y docente.

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Award, Banknote, BookOpenCheck, CalendarCheck, CircleGauge, Clock3, GraduationCap, KeyRound, ReceiptText, WalletCards } from "lucide-react";
+import { Award, Banknote, BookOpenCheck, CalendarCheck, CircleGauge, Clock3, GraduationCap, KeyRound, ReceiptText } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../components/Toast";
@@ -118,7 +118,7 @@ export function StudentPortalPage() {
   if (error) return <EmptyState icon={<GraduationCap size={27} />} title="Tu expediente no esta disponible" text={error} />;
   if (!data) return <div className="loading-panel">Cargando avance curricular...</div>;
 
-  const { student, progress, subjects, billing, attendance, registration, promotion } = data;
+  const { student, progress, subjects, billing, attendance, registration } = data;
 
   return (
     <div className="student-portal page-stack">
@@ -165,13 +165,9 @@ export function StudentPortalPage() {
       <section className="payment-metrics">
         <div><ReceiptText size={21} /><span>Colegiaturas</span><strong>{billing.summary.paidInstallments}<small> / {billing.summary.expectedPayments}</small></strong></div>
         <div><Banknote size={21} /><span>Pagado</span><strong>{money(billing.summary.paidAmount)}</strong></div>
-        <div><WalletCards size={21} /><span>Adeudo</span><strong>{money(billing.summary.balance)}</strong></div>
         <div><CalendarCheck size={21} /><span>Inscripción / reinscripción</span><strong>{registration.paid ? "PAGADA" : "PENDIENTE"}</strong></div>
       </section>
 
-      <section className={promotion.eligible ? "promotion-alert promotion-ok" : "promotion-alert promotion-blocked"}>
-        <div><strong>{promotion.eligible ? `Puedes ser promovido al ${promotion.targetPeriodNumber}° semestre` : "Promoción de semestre no autorizada"}</strong><span>{promotion.eligible ? "Tus dos pagos recientes y la reinscripción del semestre destino están cubiertos." : promotion.reasons.join(" ")}</span></div>
-      </section>
 
       <section className="table-section">
         <header className="section-heading">

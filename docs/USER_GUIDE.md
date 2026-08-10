@@ -93,6 +93,16 @@ Al registrar una inscripción o reinscripción en **Cobros**, selecciona obligat
 reinscripción marcada como **3.er semestre**; una reinscripción anterior no autoriza el avance.
 Los pagos históricos que contienen el semestre en su concepto se identifican automáticamente.
 
+### Correcciones manuales desde Alumnos
+
+En **Alumnos**, abre el menú de acciones del estudiante y selecciona **Modificar reinscripción**. El administrador puede marcarla como pagada o pendiente y definir el semestre promovido. Cuando está pagada se solicitan obligatoriamente el folio físico, el monto y la fecha; el movimiento también queda registrado en el historial de pagos.
+
+Si el cálculo automático no corresponde al expediente real, usa **Marcar cuenta regularizada**. La excepción es reversible, queda en auditoría y permite aplicar las reglas académicas sin mostrar un saldo de adeudo en las pantallas.
+
+En **Administración de grupos** se configura el semestre vigente del grupo junto con el ciclo y el plan. La sincronización aplica los tres datos a todos sus alumnos. Para casos excepcionales, **Forzar** permite promover individualmente aunque no cumpla la validación automática.
+
+Las colegiaturas se vuelven exigibles el día 10 de cada mes. El calendario comienza en la fecha de inicio de cobro del alumno o, si no existe una fecha individual, en el inicio del ciclo de formación; por ejemplo, una generación iniciada en agosto de 2025 se calcula desde ese mes hasta el mes actualmente exigible.
+
 En **Colegiaturas mensuales**, al marcar un mes como pagado el concepto se genera con el
 mes y el año correspondientes, por ejemplo **Colegiatura agosto 2026**.
 

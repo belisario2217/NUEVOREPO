@@ -22,12 +22,16 @@ type Group = {
   plan_id: number | null;
   plan_name: string | null;
   plan_version: string | null;
+  curricular_period_id: number | null;
+  curricular_period_name: string | null;
+  curricular_period_number: number | null;
   student_count: number;
   mismatch_count: number;
 };
 
 type Cycle = { id: number; name: string; start_date: string; end_date: string };
 type Plan = { id: number; name: string; version: string; program_id: number; program_name: string };
+type Period = { id: number; name: string; sequence: number };
 type EnrolledStudent = {
   id: number;
   student_number: string;
@@ -57,7 +61,7 @@ type EnrolledStudent = {
   };
 };
 
-type ListResponse = { groups: Group[]; cycles: Cycle[]; plans: Plan[] };
+type ListResponse = { groups: Group[]; cycles: Cycle[]; plans: Plan[]; periods: Period[] };
 type DetailResponse = { group: Group; students: EnrolledStudent[]; updatedStudents?: number };
 
 const modalityLabels = {
@@ -80,11 +84,12 @@ export function GroupManagementPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [periods, setPeriods] = useState<Period[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<DetailResponse | null>(null);
   const [groupSearch, setGroupSearch] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
-  const [form, setForm] = useState({ activeCycleId: "", planId: "", syncStudents: true });
+  const [form, setForm] = useState({ activeCycleId: "", planId: "", curricularPeriodId: "", syncStudents: true });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
@@ -93,6 +98,7 @@ export function GroupManagementPage() {
     setForm({
       activeCycleId: result.group.active_cycle_id ? String(result.group.active_cycle_id) : "",
       planId: result.group.plan_id ? String(result.group.plan_id) : "",
+      curricularPeriodId: result.group.curricular_period_id ? String(result.group.curricular_period_id) : "",
       syncStudents: true
     });
   }
@@ -108,6 +114,7 @@ export function GroupManagementPage() {
     setGroups(result.groups);
     setCycles(result.cycles);
     setPlans(result.plans);
+    setPeriods(result.periods);
     const nextId = preferredId && result.groups.some((group) => group.id === preferredId)
       ? preferredId
       : result.groups.find((group) => group.is_active)?.id ?? result.groups[0]?.id;
@@ -148,6 +155,7 @@ export function GroupManagementPage() {
   const formHasChanges = Boolean(detail && (
     form.activeCycleId !== String(detail.group.active_cycle_id ?? "")
     || form.planId !== String(detail.group.plan_id ?? "")
+    || form.curricularPeriodId !== String(detail.group.curricular_period_id ?? "")
   ));
 
   async function saveContext(event: React.FormEvent) {
@@ -164,6 +172,7 @@ export function GroupManagementPage() {
       setGroups(refreshed.groups);
       setCycles(refreshed.cycles);
       setPlans(refreshed.plans);
+      setPeriods(refreshed.periods);
       toast.success(form.syncStudents
         ? `Contexto guardado y ${result.updatedStudents ?? 0} alumno(s) sincronizado(s).`
         : "Contexto académico del grupo guardado.");
@@ -174,15 +183,12 @@ export function GroupManagementPage() {
     }
   }
 
-  async function promoteStudent(student: EnrolledStudent) {
-    if (!student.promotion.eligible) {
-      toast.error(student.promotion.reasons.join(" "));
-      return;
-    }
-    if (!window.confirm(`¿Promover a ${student.full_name} a ${student.promotion.targetPeriodName ?? `semestre ${student.promotion.targetPeriodNumber}`}?`)) return;
+  async function promoteStudent(student: EnrolledStudent, force = false) {
+    const action = force ? "promover manualmente" : "promover";
+    if (!window.confirm(`¿${action} a ${student.full_name} a ${student.promotion.targetPeriodName ?? `semestre ${student.promotion.targetPeriodNumber}`}?${force ? " Esta acción omitirá las validaciones automáticas." : ""}`)) return;
     setBusy(true);
     try {
-      const result = await api<{ message: string; students: EnrolledStudent[] }>(`/group-management/enrollments/${student.enrollment_id}/promote`, { method: "POST" });
+      const result = await api<{ message: string; students: EnrolledStudent[] }>(`/group-management/enrollments/${student.enrollment_id}/promote`, { method: "POST", body: { force } });
       setDetail((current) => current ? { ...current, students: result.students } : current);
       toast.success(result.message);
     } catch (error) {
@@ -227,6 +233,7 @@ export function GroupManagementPage() {
               <div><UsersRound size={20} /><span>Alumnos inscritos</span><strong>{detail.group.student_count} / {detail.group.capacity}</strong></div>
               <div><CalendarRange size={20} /><span>Ciclo activo</span><strong>{detail.group.active_cycle_name ?? "Por definir"}</strong></div>
               <div><BookOpenCheck size={20} /><span>Plan aplicado</span><strong>{detail.group.plan_name ?? "Por definir"}</strong></div>
+              <div><GraduationCap size={20} /><span>Semestre del grupo</span><strong>{detail.group.curricular_period_name ?? "Por definir"}</strong></div>
               <div className={!detail.group.plan_id || !detail.group.active_cycle_id || detail.group.mismatch_count ? "metric-warning" : "metric-ready"}><CheckCircle2 size={20} /><span>Contexto de alumnos</span><strong>{!detail.group.plan_id || !detail.group.active_cycle_id ? "Por configurar" : detail.group.mismatch_count ? `${detail.group.mismatch_count} por sincronizar` : "Sincronizado"}</strong></div>
             </div>
 
@@ -234,9 +241,10 @@ export function GroupManagementPage() {
               <div className="group-context-copy"><span>Configuración vigente</span><strong>Ciclo escolar y plan aplicado</strong><p>El ciclo de generación permanece intacto; aquí se controla el periodo que cursa el grupo.</p></div>
               <Field label="Ciclo escolar activo" required><Select options={cycles} value={form.activeCycleId} onChange={(event) => setForm({ ...form, activeCycleId: event.target.value })} required /></Field>
               <Field label="Plan académico aplicado" required><Select options={compatiblePlans.map((plan) => ({ id: plan.id, name: `${plan.name} · ${plan.version}` }))} value={form.planId} onChange={(event) => setForm({ ...form, planId: event.target.value })} required /></Field>
+              <Field label="Semestre actual del grupo" required><Select options={periods} value={form.curricularPeriodId} onChange={(event) => setForm({ ...form, curricularPeriodId: event.target.value })} required /></Field>
               {can("students.manage") && <div className="group-context-actions">
-                <label className="check-row group-sync-check"><input type="checkbox" checked={form.syncStudents} onChange={(event) => setForm({ ...form, syncStudents: event.target.checked })} /><span>Aplicar este ciclo y plan a todos los alumnos inscritos</span></label>
-                <Button type="submit" icon={<Save size={17} />} busy={busy} disabled={!form.activeCycleId || !form.planId || (!formHasChanges && !detail.group.mismatch_count)}>Guardar y sincronizar</Button>
+                <label className="check-row group-sync-check"><input type="checkbox" checked={form.syncStudents} onChange={(event) => setForm({ ...form, syncStudents: event.target.checked })} /><span>Aplicar ciclo, plan y semestre a todos los alumnos inscritos</span></label>
+                <Button type="submit" icon={<Save size={17} />} busy={busy} disabled={!form.activeCycleId || !form.planId || !form.curricularPeriodId || (!formHasChanges && !detail.group.mismatch_count)}>Guardar y sincronizar</Button>
               </div>}
             </form>
 
@@ -244,13 +252,12 @@ export function GroupManagementPage() {
               <div><span>Matrícula activa</span><h3>Alumnos inscritos en {detail.group.name}</h3></div>
               <div className="search-box compact"><Search size={16} /><input value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="Buscar alumno" /></div>
             </div>
-            {filteredStudents.length ? <div className="table-wrap group-roster-table"><table><thead><tr><th>Alumno</th><th>Periodo del plan</th><th>Adeudo vencido</th><th>Reinscripción destino</th><th>Promoción</th><th>Estado</th></tr></thead><tbody>
+            {filteredStudents.length ? <div className="table-wrap group-roster-table"><table><thead><tr><th>Alumno</th><th>Periodo del plan</th><th>Reinscripción destino</th><th>Promoción</th><th>Estado</th></tr></thead><tbody>
               {filteredStudents.map((student) => <tr key={student.enrollment_id}>
                 <td><div className="person-cell"><div className="mini-avatar">{student.full_name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div><div><strong>{student.full_name}</strong><span>{student.student_number}</span></div></div></td>
                 <td>{student.curricular_period_name ?? "Sin definir"}</td>
-                <td><strong className={student.promotion.overdueMonths > 2 ? "grade-fail-text" : ""}>{student.promotion.overdueMonths} mes(es)</strong><span className="table-sub">{student.promotion.overdueAmount.toLocaleString("es-MX", { style: "currency", currency: "MXN" })}</span></td>
                 <td><StatusBadge active={student.promotion.registrationPaidForTarget} label={student.promotion.registrationPaidForTarget ? `${student.promotion.targetPeriodNumber}° PAGADA` : `${student.promotion.targetPeriodNumber}° PENDIENTE`} /></td>
-                <td>{can("students.manage") ? <button className="promotion-button" disabled={busy || !student.promotion.eligible} onClick={() => promoteStudent(student)} title={student.promotion.eligible ? "Promover al semestre siguiente" : student.promotion.reasons.join(" ")}><ArrowUpCircle size={16} /> {student.promotion.eligible ? "Promover" : "Bloqueada"}</button> : <StatusBadge active={student.promotion.eligible} label={student.promotion.eligible ? "AUTORIZADA" : "BLOQUEADA"} />}</td>
+                <td>{can("students.manage") ? <div className="inline-actions"><button className="promotion-button" disabled={busy || !student.promotion.eligible} onClick={() => promoteStudent(student)} title="Promover con validaciones"><ArrowUpCircle size={16} /> Promover</button>{!student.promotion.eligible && <button className="promotion-button force" disabled={busy} onClick={() => promoteStudent(student, true)} title="Promoción administrativa forzada"><ArrowUpCircle size={16} /> Forzar</button>}</div> : <StatusBadge active={student.promotion.eligible} label={student.promotion.eligible ? "AUTORIZADA" : "REVISIÓN ADMINISTRATIVA"} />}</td>
                 <td><StatusBadge active={Boolean(student.context_matches)} label={student.context_matches ? "Sincronizado" : !detail.group.plan_id || !detail.group.active_cycle_id ? "Por configurar" : "Por sincronizar"} /></td>
               </tr>)}
             </tbody></table></div> : <EmptyState icon={<GraduationCap size={25} />} title={studentSearch ? "Sin coincidencias" : "Grupo sin alumnos inscritos"} text={studentSearch ? "Prueba con otro nombre o matrícula." : "Los alumnos aparecerán aquí al ser dados de alta en este grupo."} />}

@@ -200,7 +200,12 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
     enrollment.enrollment_id,
     enrollment.group_id
   );
-  const registration = get<{ paid: number; paid_at: string | null; concept: string | null }>(
+  const manualRegistration = get<{ status: string; paid_at: string | null; period_number: number }>(
+    "SELECT status, paid_at, period_number FROM student_registration_status WHERE enrollment_id = ? AND period_number = ?",
+    enrollment.enrollment_id,
+    enrollment.current_period_number ?? -1
+  );
+  const paymentRegistration = get<{ paid: number; paid_at: string | null; concept: string | null }>(
     `SELECT 1 AS paid, paid_at, concept FROM student_payments
      WHERE enrollment_id = ?
      AND (concept_type IN ('enrollment', 'reenrollment') OR LOWER(concept) LIKE '%inscrip%')
@@ -209,6 +214,9 @@ portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedReque
     enrollment.enrollment_id,
     enrollment.current_period_number ?? -1
   );
+  const registration = manualRegistration
+    ? { paid: manualRegistration.status === "paid" ? 1 : 0, paid_at: manualRegistration.paid_at, concept: "Registro administrativo" }
+    : paymentRegistration;
 
   const totalCredits = subjects.reduce((sum, subject) => sum + Number(subject.credits), 0);
   const earnedCredits = subjects

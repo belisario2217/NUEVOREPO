@@ -27,14 +27,18 @@ export function evaluationEligibility(assignmentId: number, enrollmentId: number
     : 0;
 
   const registration = get<{ paid: number }>(
-    `SELECT CASE WHEN EXISTS (
+    `SELECT COALESCE((SELECT CASE WHEN srs.status = 'paid' THEN 1 ELSE 0 END
+       FROM student_registration_status srs JOIN enrollments e ON e.id = srs.enrollment_id
+       JOIN curricular_periods cp ON cp.id = e.curricular_period_id
+       WHERE srs.enrollment_id = ? AND srs.period_number = cp.sequence LIMIT 1), CASE WHEN EXISTS (
        SELECT 1 FROM student_payments sp
        JOIN enrollments e ON e.id = sp.enrollment_id
        JOIN curricular_periods cp ON cp.id = e.curricular_period_id
        WHERE sp.enrollment_id = ?
        AND (sp.concept_type IN ('enrollment', 'reenrollment') OR LOWER(sp.concept) LIKE '%inscrip%')
        AND sp.registration_period_number = cp.sequence
-     ) THEN 1 ELSE 0 END AS paid`,
+     ) THEN 1 ELSE 0 END) AS paid`,
+    enrollmentId,
     enrollmentId
   );
   const registrationPaid = Boolean(registration?.paid);

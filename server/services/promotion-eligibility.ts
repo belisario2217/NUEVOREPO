@@ -18,7 +18,7 @@ export function promotionEligibility(enrollmentId: number): PromotionEligibility
     `SELECT e.id, e.student_id AS studentId, e.plan_id AS planId, e.enrolled_at AS enrolledAt,
      e.tuition_start_date AS billingStartDate, e.tuition_due_day AS tuitionDueDay,
      p.duration_periods AS durationPeriods, pl.tuition_amount AS tuitionAmount,
-     COALESCE(cp.sequence, 0) AS current_period_number
+     COALESCE(cp.sequence, 0) AS current_period_number, e.financial_clearance_override
      FROM enrollments e JOIN programs p ON p.id = e.program_id
      LEFT JOIN academic_plans pl ON pl.id = e.plan_id
      LEFT JOIN curricular_periods cp ON cp.id = e.curricular_period_id
@@ -37,24 +37,31 @@ export function promotionEligibility(enrollmentId: number): PromotionEligibility
     )
     : undefined;
   const billing = buildBilling(enrollment as BillingSource);
-  const today = new Date().toISOString().slice(0, 10);
-  const dueInstallments = billing.schedule.filter((item) => item.dueDate && item.dueDate <= today);
+  const dueInstallments = billing.schedule.filter((item) => item.status !== "not_due");
   const allOutstanding = dueInstallments.filter((item) => item.status === "pending");
   const latestPaidMonth = [
     ...billing.payments.filter((payment) => payment.concept_type === "tuition").map((payment) => payment.covered_month),
     ...billing.schedule.filter((item) => item.status === "paid" || item.status === "waived").map((item) => item.billingMonth)
   ].filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
-  const overdue = allOutstanding.filter((item) => !latestPaidMonth || !item.billingMonth || item.billingMonth > latestPaidMonth);
+  const financialOverride = Boolean(enrollment.financial_clearance_override);
+  const overdue = financialOverride ? [] : allOutstanding.filter((item) => !latestPaidMonth || !item.billingMonth || item.billingMonth > latestPaidMonth);
   const lastTwo = dueInstallments.slice(-2);
-  const recentTwoPaymentsCovered = lastTwo.length >= 2 && lastTwo.every((item) => item.status === "paid" || item.status === "waived");
-  const overdueAmount = Number(allOutstanding.reduce((sum, item) => sum + Number(item.pendingAmount), 0).toFixed(2));
-  const registrationPaidForTarget = Boolean(get(
-    `SELECT id FROM student_payments WHERE enrollment_id = ?
-     AND (concept_type IN ('enrollment', 'reenrollment') OR lower(concept) LIKE '%inscrip%')
-     AND registration_period_number = ? LIMIT 1`,
+  const recentTwoPaymentsCovered = financialOverride || (lastTwo.length >= 2 && lastTwo.every((item) => item.status === "paid" || item.status === "waived"));
+  const overdueAmount = financialOverride ? 0 : Number(allOutstanding.reduce((sum, item) => sum + Number(item.pendingAmount), 0).toFixed(2));
+  const manualRegistration = get<{ status: string }>(
+    "SELECT status FROM student_registration_status WHERE enrollment_id = ? AND period_number = ?",
     enrollmentId,
     targetPeriodNumber
-  ));
+  );
+  const registrationPaidForTarget = manualRegistration
+    ? manualRegistration.status === "paid"
+    : Boolean(get(
+      `SELECT id FROM student_payments WHERE enrollment_id = ?
+       AND (concept_type IN ('enrollment', 'reenrollment') OR lower(concept) LIKE '%inscrip%')
+       AND registration_period_number = ? LIMIT 1`,
+      enrollmentId,
+      targetPeriodNumber
+    ));
   const reasons: string[] = [];
   if (!targetPeriod) reasons.push("El alumno ya se encuentra en el último semestre configurado para su plan.");
   if (overdue.length > 2) reasons.push(`Tiene ${overdue.length} mensualidades vencidas por un total de $${overdueAmount.toLocaleString("es-MX", { minimumFractionDigits: 2 })}.`);
