@@ -6,7 +6,8 @@ import { DatabaseSync } from "node:sqlite";
 import multer from "multer";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, databasePath, db, get, restorePath, run } from "../db.js";
-import { ApiError, cleanText, optionalText } from "../utils.js";
+import { ApiError, asId, cleanText, optionalText } from "../utils.js";
+import { syncAcademicSubjectStatuses } from "../services/academic-calendar.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const uploadsDir = process.env.UPLOADS_PATH
@@ -37,8 +38,72 @@ settingsRouter.get("/", requirePermission("dashboard.view"), (_req, res) => {
        LEFT JOIN grading_scales s ON s.id = i.default_scale_id WHERE i.id = 1`
     ),
     cycles: all("SELECT id, name FROM school_cycles WHERE is_active = 1 ORDER BY start_date DESC"),
-    scales: all("SELECT id, name FROM grading_scales WHERE is_active = 1 ORDER BY name")
+    scales: all("SELECT id, name FROM grading_scales WHERE is_active = 1 ORDER BY name"),
+    calendarEvents: all(
+      `SELECT ace.*, sc.name AS cycle_name FROM academic_calendar_events ace
+       LEFT JOIN school_cycles sc ON sc.id = ace.school_cycle_id
+       WHERE ace.is_active = 1 ORDER BY ace.start_date, ace.id`
+    )
   });
+});
+
+function calendarEventBody(body: any) {
+  const eventType = cleanText(body.eventType, 30);
+  const allowed = ["class_start", "evaluation", "enrollment", "reenrollment", "vacation", "resumption", "cycle_end", "other"];
+  if (!allowed.includes(eventType)) throw new ApiError(400, "Selecciona un tipo de fecha válido.");
+  const title = cleanText(body.title, 160);
+  const startDate = cleanText(body.startDate, 10);
+  const endDate = cleanText(body.endDate || body.startDate, 10);
+  if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || endDate < startDate) {
+    throw new ApiError(400, "Captura un título y un rango de fechas válido.");
+  }
+  return {
+    cycleId: body.cycleId ? asId(body.cycleId, "Ciclo escolar") : null,
+    eventType,
+    title,
+    startDate,
+    endDate,
+    description: optionalText(body.description, 500),
+    autoStartSubjects: body.autoStartSubjects ? 1 : 0
+  };
+}
+
+settingsRouter.post("/calendar-events", requirePermission("settings.manage"), (req: AuthenticatedRequest, res) => {
+  const event = calendarEventBody(req.body);
+  const inserted = run(
+    `INSERT INTO academic_calendar_events(school_cycle_id, event_type, title, start_date, end_date,
+     description, auto_start_subjects, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    event.cycleId, event.eventType, event.title, event.startDate, event.endDate,
+    event.description, event.autoStartSubjects, req.user!.id, req.user!.id
+  );
+  const id = Number(inserted.lastInsertRowid);
+  syncAcademicSubjectStatuses();
+  logActivity(req, "create-academic-calendar-event", "academic_calendar_events", id, event);
+  res.status(201).json(get("SELECT * FROM academic_calendar_events WHERE id = ?", id));
+});
+
+settingsRouter.patch("/calendar-events/:id", requirePermission("settings.manage"), (req: AuthenticatedRequest, res) => {
+  const id = asId(req.params.id, "Fecha académica");
+  if (!get("SELECT id FROM academic_calendar_events WHERE id = ?", id)) throw new ApiError(404, "La fecha académica no existe.");
+  const event = calendarEventBody(req.body);
+  run(
+    `UPDATE academic_calendar_events SET school_cycle_id = ?, event_type = ?, title = ?, start_date = ?,
+     end_date = ?, description = ?, auto_start_subjects = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    event.cycleId, event.eventType, event.title, event.startDate, event.endDate,
+    event.description, event.autoStartSubjects, req.user!.id, id
+  );
+  syncAcademicSubjectStatuses();
+  logActivity(req, "update-academic-calendar-event", "academic_calendar_events", id, event);
+  res.json(get("SELECT * FROM academic_calendar_events WHERE id = ?", id));
+});
+
+settingsRouter.delete("/calendar-events/:id", requirePermission("settings.manage"), (req: AuthenticatedRequest, res) => {
+  const id = asId(req.params.id, "Fecha académica");
+  const event = get("SELECT * FROM academic_calendar_events WHERE id = ?", id);
+  if (!event) throw new ApiError(404, "La fecha académica no existe.");
+  run("DELETE FROM academic_calendar_events WHERE id = ?", id);
+  logActivity(req, "delete-academic-calendar-event", "academic_calendar_events", id, event);
+  res.status(204).end();
 });
 
 settingsRouter.patch("/", requirePermission("settings.manage"), (req: AuthenticatedRequest, res) => {

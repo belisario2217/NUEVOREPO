@@ -95,6 +95,8 @@ materias, docentes, criterios, escalas y estatus no están fijados en la interfa
 - Corrección administrativa desde Alumnos: reinscripción manual con folio, monto, fecha y semestre, cuenta regularizada y promoción forzada auditable.
 - Semestre vigente configurable por grupo, con sincronización masiva de sus alumnos.
 - Colegiaturas exigibles desde el día 10, calculadas desde el inicio de cobro de cada generación; las pantallas muestran pagos realizados, no saldos de adeudo.
+- Calendario académico configurable con clases, evaluaciones, inscripciones, vacaciones, reanudaciones y cierres.
+- Cambio masivo del estado de materias por grupo, ciclo y semestre, con inicio automático según la fecha configurada.
 - Boletas individuales y masivas en PDF.
 - Reportes de asistencia, concentrado, materias, docentes, reprobados y destacados.
 - Analíticas por grupo, programa, turno, materia, periodo y docente.

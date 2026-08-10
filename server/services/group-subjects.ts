@@ -1,4 +1,5 @@
 import { all, get, run } from "../db.js";
+import { academicStatusForCycle } from "./academic-calendar.js";
 
 type EnrollmentContext = {
   id: number;
@@ -57,11 +58,12 @@ export function syncEnrollmentGroupSubjects(enrollmentId: number) {
   );
 
   let synced = 0;
+  const initialStatus = academicStatusForCycle(enrollment.cycle_id);
   subjects.forEach((subject) => {
     const result = run(
       `INSERT INTO student_subjects(student_id, enrollment_id, plan_id, subject_id, school_cycle_id,
        semester_number, subject_type, credits, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'in_progress')
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(student_id, subject_id, school_cycle_id, semester_number)
        DO UPDATE SET enrollment_id = excluded.enrollment_id, plan_id = excluded.plan_id,
         subject_type = excluded.subject_type, credits = excluded.credits, updated_at = CURRENT_TIMESTAMP`,
@@ -72,7 +74,8 @@ export function syncEnrollmentGroupSubjects(enrollmentId: number) {
       enrollment.cycle_id,
       Math.max(1, Number(subject.semester_number ?? 1)),
       subject.subject_type,
-      subject.credits
+      subject.credits,
+      initialStatus
     );
     synced += Number(result.changes);
   });

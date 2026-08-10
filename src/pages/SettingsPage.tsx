@@ -1,9 +1,33 @@
 import { useEffect, useRef, useState } from "react";
-import { Building2, Check, DatabaseBackup, Download, History, ImagePlus, Palette, Save, ShieldCheck } from "lucide-react";
+import { Building2, CalendarRange, Check, DatabaseBackup, Download, History, ImagePlus, Palette, Pencil, Plus, Save, ShieldCheck, Trash2 } from "lucide-react";
 import { api, download } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../components/Toast";
 import { Button, Field, Select } from "../components/Ui";
+
+type CalendarEvent = {
+  id: number;
+  school_cycle_id: number | null;
+  cycle_name: string | null;
+  event_type: string;
+  title: string;
+  start_date: string;
+  end_date: string;
+  description: string | null;
+  auto_start_subjects: number;
+};
+
+const blankCalendarEvent = { cycleId: "", eventType: "evaluation", title: "", startDate: "", endDate: "", description: "", autoStartSubjects: false };
+const calendarTypes = [
+  { value: "class_start", label: "Inicio de clases" },
+  { value: "evaluation", label: "Evaluación parcial" },
+  { value: "enrollment", label: "Inscripción" },
+  { value: "reenrollment", label: "Reinscripción" },
+  { value: "vacation", label: "Vacaciones" },
+  { value: "resumption", label: "Reanudación de clases" },
+  { value: "cycle_end", label: "Fin de ciclo" },
+  { value: "other", label: "Otra fecha importante" }
+];
 
 export function SettingsPage() {
   const { can } = useAuth();
@@ -14,7 +38,10 @@ export function SettingsPage() {
   const [cycles, setCycles] = useState<any[]>([]);
   const [scales, setScales] = useState<any[]>([]);
   const [audit, setAudit] = useState<any[]>([]);
-  const [tab, setTab] = useState<"institution" | "audit">("institution");
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [calendarForm, setCalendarForm] = useState(blankCalendarEvent);
+  const [editingCalendarId, setEditingCalendarId] = useState<number | null>(null);
+  const [tab, setTab] = useState<"institution" | "calendar" | "audit">("institution");
   const [busy, setBusy] = useState(false);
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
@@ -24,6 +51,7 @@ export function SettingsPage() {
     setSettings(result.settings);
     setCycles(result.cycles);
     setScales(result.scales);
+    setCalendarEvents(result.calendarEvents ?? []);
     if (can("audit.view")) api<any[]>("/settings/audit").then(setAudit);
   }
   useEffect(() => { load(); }, []);
@@ -66,6 +94,49 @@ export function SettingsPage() {
     }
   }
 
+  async function saveCalendarEvent(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await api(editingCalendarId ? `/settings/calendar-events/${editingCalendarId}` : "/settings/calendar-events", {
+        method: editingCalendarId ? "PATCH" : "POST",
+        body: calendarForm
+      });
+      toast.success(editingCalendarId ? "Fecha académica actualizada." : "Fecha académica agregada.");
+      setCalendarForm(blankCalendarEvent);
+      setEditingCalendarId(null);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No fue posible guardar la fecha.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function editCalendarEvent(event: CalendarEvent) {
+    setEditingCalendarId(event.id);
+    setCalendarForm({
+      cycleId: event.school_cycle_id ? String(event.school_cycle_id) : "",
+      eventType: event.event_type,
+      title: event.title,
+      startDate: event.start_date,
+      endDate: event.end_date,
+      description: event.description ?? "",
+      autoStartSubjects: Boolean(event.auto_start_subjects)
+    });
+  }
+
+  async function deleteCalendarEvent(event: CalendarEvent) {
+    if (!window.confirm(`¿Eliminar la fecha “${event.title}”?`)) return;
+    try {
+      await api(`/settings/calendar-events/${event.id}`, { method: "DELETE" });
+      toast.success("Fecha académica eliminada.");
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No fue posible eliminar la fecha.");
+    }
+  }
+
   async function restoreDatabase(file: File) {
     if (!window.confirm("Esta accion reemplazara los datos actuales al reiniciar el servicio. ¿Deseas continuar?")) {
       if (databaseRef.current) databaseRef.current.value = "";
@@ -103,6 +174,7 @@ export function SettingsPage() {
     <div className="page-stack">
       <div className="page-tabs">
         <button className={tab === "institution" ? "active" : ""} onClick={() => setTab("institution")}><Building2 size={18} /> Institución</button>
+        <button className={tab === "calendar" ? "active" : ""} onClick={() => setTab("calendar")}><CalendarRange size={18} /> Calendario académico</button>
         {can("audit.view") && <button className={tab === "audit" ? "active" : ""} onClick={() => setTab("audit")}><History size={18} /> Actividad</button>}
       </div>
       {tab === "institution" ? (
@@ -157,6 +229,27 @@ export function SettingsPage() {
             )}
           </aside>
         </form>
+      ) : tab === "calendar" ? (
+        <div className="calendar-settings-layout">
+          <form className="settings-section calendar-event-form" onSubmit={saveCalendarEvent}>
+            <div className="settings-title"><CalendarRange size={20} /><div><h2>{editingCalendarId ? "Editar fecha importante" : "Agregar fecha importante"}</h2><p>Configura clases, evaluaciones, inscripciones, vacaciones y cierres.</p></div></div>
+            <div className="form-grid two">
+              <Field label="Ciclo escolar"><Select options={cycles} value={calendarForm.cycleId} onChange={(event) => setCalendarForm({ ...calendarForm, cycleId: event.target.value })} placeholder="Todos / institucional" /></Field>
+              <Field label="Tipo" required><select value={calendarForm.eventType} onChange={(event) => setCalendarForm({ ...calendarForm, eventType: event.target.value, autoStartSubjects: ["class_start", "resumption"].includes(event.target.value) })}>{calendarTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></Field>
+              <Field label="Título" required><input value={calendarForm.title} onChange={(event) => setCalendarForm({ ...calendarForm, title: event.target.value })} placeholder="Primera evaluación parcial" required /></Field>
+              <Field label="Descripción"><input value={calendarForm.description} onChange={(event) => setCalendarForm({ ...calendarForm, description: event.target.value })} /></Field>
+              <Field label="Fecha inicial" required><input type="date" value={calendarForm.startDate} onChange={(event) => setCalendarForm({ ...calendarForm, startDate: event.target.value, endDate: calendarForm.endDate || event.target.value })} required /></Field>
+              <Field label="Fecha final" required><input type="date" min={calendarForm.startDate} value={calendarForm.endDate} onChange={(event) => setCalendarForm({ ...calendarForm, endDate: event.target.value })} required /></Field>
+            </div>
+            <label className="check-row"><input type="checkbox" checked={calendarForm.autoStartSubjects} onChange={(event) => setCalendarForm({ ...calendarForm, autoStartSubjects: event.target.checked })} /><span>Al llegar esta fecha, cambiar materias pendientes del semestre actual a “En curso”</span></label>
+            <div className="modal-actions">{editingCalendarId && <Button type="button" variant="ghost" onClick={() => { setEditingCalendarId(null); setCalendarForm(blankCalendarEvent); }}>Cancelar edición</Button>}<Button type="submit" icon={editingCalendarId ? <Save size={17} /> : <Plus size={17} />} busy={busy}>{editingCalendarId ? "Guardar cambios" : "Agregar fecha"}</Button></div>
+          </form>
+          <section className="table-section calendar-events-list">
+            <header className="section-heading"><div><span>Agenda institucional</span><h2>Fechas configuradas</h2></div></header>
+            <div className="table-wrap"><table><thead><tr><th>Evento</th><th>Ciclo</th><th>Periodo</th><th>Automatización</th><th /></tr></thead><tbody>{calendarEvents.map((event) => <tr key={event.id}><td><strong className="table-main">{event.title}</strong><span className="table-sub">{calendarTypes.find((type) => type.value === event.event_type)?.label ?? event.event_type}</span></td><td>{event.cycle_name ?? "Institucional"}</td><td>{event.start_date === event.end_date ? event.start_date : `${event.start_date} al ${event.end_date}`}</td><td>{event.auto_start_subjects ? "Inicia materias" : "Solo informativa"}</td><td><div className="inline-actions"><button type="button" className="icon-button" onClick={() => editCalendarEvent(event)} title="Editar"><Pencil size={16} /></button><button type="button" className="icon-button" onClick={() => deleteCalendarEvent(event)} title="Eliminar"><Trash2 size={16} /></button></div></td></tr>)}</tbody></table></div>
+            {!calendarEvents.length && <p className="empty-calendar-copy">Aún no hay fechas académicas configuradas.</p>}
+          </section>
+        </div>
       ) : (
         <section className="table-section">
           <header className="section-heading"><div><span>Auditoría</span><h2>Actividad reciente</h2></div></header>

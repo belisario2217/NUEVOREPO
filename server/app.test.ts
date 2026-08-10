@@ -1166,4 +1166,52 @@ describe("Aula Nova API", () => {
     expect(forced.status).toBe(200);
     expect(forced.body.message).toContain("manualmente");
   });
+
+  it("manages academic dates and updates a whole group's subject status", async () => {
+    const group = db.prepare("SELECT id, cycle_id FROM groups WHERE name = '1A' ORDER BY id LIMIT 1").get() as any;
+    const subject = db.prepare(
+      `SELECT ss.id FROM student_subjects ss JOIN enrollments e ON e.id = ss.enrollment_id
+       WHERE e.group_id = ? AND ss.school_cycle_id = ? AND ss.semester_number = 1 LIMIT 1`
+    ).get(group.id, group.cycle_id) as any;
+    expect(subject).toBeTruthy();
+    db.prepare("UPDATE student_subjects SET status = 'pending' WHERE id = ?").run(subject.id);
+
+    const event = await request(app)
+      .post("/api/settings/calendar-events")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        cycleId: group.cycle_id,
+        eventType: "class_start",
+        title: "Inicio de clases de prueba",
+        startDate: "2026-08-01",
+        endDate: "2026-08-01",
+        autoStartSubjects: true
+      });
+    expect(event.status).toBe(201);
+
+    const rows = await request(app)
+      .get(`/api/reports/curricular-subjects?groupId=${group.id}&cycleId=${group.cycle_id}&semester=1`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(rows.status).toBe(200);
+    expect(rows.body.find((row: any) => row.id === subject.id)?.status).toBe("in_progress");
+
+    const bulk = await request(app)
+      .patch("/api/reports/curricular-subjects/status-group")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ groupId: group.id, cycleId: group.cycle_id, semester: 1, status: "pending" });
+    expect(bulk.status).toBe(200);
+    expect(bulk.body.count).toBeGreaterThan(0);
+    expect((db.prepare("SELECT status FROM student_subjects WHERE id = ?").get(subject.id) as any).status).toBe("pending");
+    const manualPriority = await request(app)
+      .get(`/api/reports/curricular-subjects?groupId=${group.id}&cycleId=${group.cycle_id}&semester=1`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(manualPriority.body.find((row: any) => row.id === subject.id)?.status).toBe("pending");
+
+    const settings = await request(app).get("/api/settings").set("Authorization", `Bearer ${token}`);
+    expect(settings.body.calendarEvents.some((item: any) => item.title === "Inicio de clases de prueba")).toBe(true);
+    await request(app)
+      .delete(`/api/settings/calendar-events/${event.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(204);
+  });
 });

@@ -4,6 +4,7 @@ import { all, get } from "../db.js";
 import { buildBilling } from "../services/billing.js";
 import { ApiError } from "../utils.js";
 import { promotionEligibility } from "../services/promotion-eligibility.js";
+import { syncAcademicSubjectStatuses } from "../services/academic-calendar.js";
 
 export const portalRouter = Router();
 
@@ -77,6 +78,7 @@ function summarizeSubject(subject: any, gradeRows: any[]): PortalSubject {
 }
 
 portalRouter.get("/", requirePermission("portal.view"), (req: AuthenticatedRequest, res) => {
+  syncAcademicSubjectStatuses();
   if (!req.user?.studentId) throw new ApiError(403, "Esta cuenta todavía no está vinculada con un alumno.");
   const enrollment = get<any>(
     `SELECT e.id AS enrollment_id, e.plan_id, e.group_id, e.enrolled_at,

@@ -103,6 +103,14 @@ En **Administración de grupos** se configura el semestre vigente del grupo junt
 
 Las colegiaturas se vuelven exigibles el día 10 de cada mes. El calendario comienza en la fecha de inicio de cobro del alumno o, si no existe una fecha individual, en el inicio del ciclo de formación; por ejemplo, una generación iniciada en agosto de 2025 se calcula desde ese mes hasta el mes actualmente exigible.
 
+## Calendario académico y estado de materias
+
+En **Configuración > Calendario académico** registra fechas de inicio de clases, evaluaciones parciales, inscripción, reinscripción, vacaciones, reanudación, fin de ciclo u otros eventos. Cada fecha puede vincularse a un ciclo escolar y contener un rango y una descripción.
+
+Activa **Al llegar esta fecha, cambiar materias pendientes del semestre actual a “En curso”** en el inicio o reanudación de clases. La plataforma actualizará únicamente materias pendientes del semestre que cada alumno cursa; no cambia materias cursadas, calificaciones ni semestres futuros. Si el ciclo no tiene una fecha automática configurada, se utiliza su fecha oficial de inicio.
+
+En **Reportes y documentos > Materias asignadas al grupo**, selecciona grupo, ciclo, semestre y estado. El botón **Aplicar estado al grupo** permite cambiar todos los registros filtrados a Pendiente, En curso o Cursada. Usa Cursada únicamente cuando el grupo haya terminado realmente las materias.
+
 En **Colegiaturas mensuales**, al marcar un mes como pagado el concepto se genera con el
 mes y el año correspondientes, por ejemplo **Colegiatura agosto 2026**.
 

@@ -571,6 +571,11 @@ tbody tr:last-child td { border-bottom: 0; }
 .promotion-button { min-height: 30px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; color: white; background: var(--green); border: 0; border-radius: 4px; font-size: 9px; font-weight: 700; }
 .promotion-button:disabled { color: #7b8794; background: #e6edf1; cursor: not-allowed; }
 .promotion-button.force { background: #b45309; }
+.calendar-settings-layout { display: grid; grid-template-columns: minmax(320px, .85fr) minmax(480px, 1.4fr); gap: 18px; align-items: start; }
+.calendar-event-form { margin: 0; border: 1px solid var(--line); border-radius: 6px; background: white; }
+.calendar-event-form .check-row { margin-top: 16px; }
+.calendar-events-list { margin: 0; }
+.empty-calendar-copy { padding: 24px; color: var(--muted); text-align: center; }
 .promotion-alert { display: flex; align-items: center; min-height: 58px; padding: 12px 16px; border-radius: 5px; }
 .promotion-alert strong, .promotion-alert span { display: block; }
 .promotion-alert strong { font-size: 11px; }
@@ -690,6 +695,7 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 
 @media (max-width: 900px) {
+  .calendar-settings-layout { grid-template-columns: 1fr; }
   .app-shell, .app-shell.sidebar-collapsed { grid-template-columns: 1fr; }
   .sidebar { position: fixed; left: -260px; width: 246px; transition: left .2s; box-shadow: 10px 0 30px rgba(0,0,0,.2); }
   .sidebar.mobile-open { left: 0; }

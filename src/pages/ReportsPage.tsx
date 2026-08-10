@@ -110,6 +110,7 @@ export function ReportsPage() {
     if (groupId) query.set("groupId", groupId);
     if (studentId) query.set("studentId", studentId);
     if (semester) query.set("semester", semester);
+    if (cycleId) query.set("cycleId", cycleId);
     const rows = await api<CurricularSubject[]>(`/reports/curricular-subjects?${query}`);
     setCurricularRows(rows);
     setDrafts(Object.fromEntries(rows.map((row) => [row.id, draftFromRow(row)])));
@@ -138,7 +139,7 @@ export function ReportsPage() {
 
   useEffect(() => {
     loadCurricularRows().catch(() => undefined);
-  }, [groupId, studentId, semester]);
+  }, [groupId, studentId, semester, cycleId]);
 
   function reportPath(type: string, format: string) {
     const query = new URLSearchParams({ format });
@@ -223,6 +224,23 @@ export function ReportsPage() {
     }
   }
 
+  async function applyGroupStatus() {
+    if (!groupId) return toast.error("Selecciona un grupo.");
+    setBusy(true);
+    try {
+      const result = await api<{ count: number }>("/reports/curricular-subjects/status-group", {
+        method: "PATCH",
+        body: { groupId, cycleId: cycleId || undefined, semester, status: initialStatus }
+      });
+      toast.success(`${result.count} materia(s) del grupo cambiadas a ${initialStatus === "in_progress" ? "En curso" : initialStatus === "completed" ? "Cursada" : "Pendiente"}.`);
+      await loadCurricularRows();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No fue posible cambiar el estado del grupo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function clearGroupCurricularSubjects() {
     if (!groupId) return toast.error("Selecciona un grupo.");
     if (!confirm("Esto borrara TODAS las materias colocadas a los alumnos del grupo seleccionado. Deseas continuar?")) return;
@@ -275,6 +293,7 @@ export function ReportsPage() {
           {can("reports.generate") && <Button icon={<GraduationCap size={17} />} busy={busy} onClick={assignSemesterSubjects}>Asignar materias del plan al grupo</Button>}
         </div>
         {can("reports.generate") && <div className="bulk-toolbar">
+          <Button variant="secondary" icon={<GraduationCap size={17} />} busy={busy} onClick={applyGroupStatus}>Aplicar estado al grupo</Button>
           <Button icon={<Save size={17} />} busy={savingAll} disabled={!changedRowsCount} onClick={saveAllCurricularSubjects}>Guardar avances{changedRowsCount ? ` (${changedRowsCount})` : ""}</Button>
           <Button variant="danger" icon={<Trash2 size={17} />} busy={busy} onClick={clearGroupCurricularSubjects}>Limpiar grupo</Button>
         </div>}

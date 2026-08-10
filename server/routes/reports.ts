@@ -7,6 +7,7 @@ import { all, get, run, transaction } from "../db.js";
 import { createPdf, pdfTable, sendWorkbook } from "../services/files.js";
 import { sendAttendancePdf, sendAttendanceWorkbook } from "../services/attendance-list.js";
 import { syncGroupSubjects } from "../services/group-subjects.js";
+import { syncAcademicSubjectStatuses } from "../services/academic-calendar.js";
 import { ApiError, asId, asNumber, cleanText, optionalText } from "../utils.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -385,10 +386,15 @@ function curricularWhere(req: any) {
     clauses.push("ss.semester_number = ?");
     params.push(Math.max(1, Math.trunc(asNumber(req.query.semester, "Semestre"))));
   }
+  if (req.query.cycleId) {
+    clauses.push("ss.school_cycle_id = ?");
+    params.push(asId(req.query.cycleId, "Ciclo escolar"));
+  }
   return { clauses, params };
 }
 
 reportsRouter.get("/curricular-subjects", requirePermission("reports.view"), (req, res) => {
+  syncAcademicSubjectStatuses();
   const { clauses, params } = curricularWhere(req);
   res.json(all<any>(
     `SELECT ss.id, ss.student_id, ss.enrollment_id, ss.plan_id, ss.subject_id, ss.school_cycle_id,
@@ -415,6 +421,27 @@ reportsRouter.get("/curricular-subjects", requirePermission("reports.view"), (re
      ORDER BY ss.semester_number, st.last_name, st.first_name, s.name`,
     ...params
   ));
+});
+
+reportsRouter.patch("/curricular-subjects/status-group", requirePermission("reports.generate"), (req: AuthenticatedRequest, res) => {
+  const groupId = asId(req.body.groupId, "Grupo");
+  const cycleId = req.body.cycleId ? asId(req.body.cycleId, "Ciclo escolar") : null;
+  const semester = req.body.semester ? Math.max(1, Math.trunc(asNumber(req.body.semester, "Semestre"))) : null;
+  const status = String(req.body.status);
+  if (!["pending", "in_progress", "completed"].includes(status)) throw new ApiError(400, "Selecciona un estado válido.");
+  const result = run(
+    `UPDATE student_subjects SET status = ?, status_manual_override = 1, updated_at = CURRENT_TIMESTAMP
+     WHERE id IN (
+       SELECT ss.id FROM student_subjects ss JOIN enrollments e ON e.id = ss.enrollment_id
+       WHERE e.group_id = ? AND e.is_active = 1
+       AND (? IS NULL OR ss.school_cycle_id = ?)
+       AND (? IS NULL OR ss.semester_number = ?)
+     )`,
+    status, groupId, cycleId, cycleId, semester, semester
+  );
+  const count = Number(result.changes);
+  logActivity(req, "bulk-update-curricular-status", "student_subjects", groupId, { cycleId, semester, status, count });
+  res.json({ count, status });
 });
 
 reportsRouter.post("/curricular-subjects/bulk", requirePermission("reports.generate"), (req: AuthenticatedRequest, res) => {
@@ -554,7 +581,7 @@ reportsRouter.patch("/curricular-subjects/:id", requirePermission("reports.gener
   transaction(() => {
     run(
       `UPDATE student_subjects SET subject_id = ?, school_cycle_id = ?, semester_number = ?, subject_type = ?,
-       credits = ?, status = ?, final_score = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+       credits = ?, status = ?, status_manual_override = 1, final_score = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       subjectId,
       cycleId,
       semester,
@@ -586,7 +613,7 @@ reportsRouter.patch("/curricular-subjects/:id", requirePermission("reports.gener
   const subjectType = req.body.subjectType === "elective" ? "elective" : req.body.subjectType === "mandatory" ? "mandatory" : current.subject_type;
   run(
     `UPDATE student_subjects SET subject_id = ?, school_cycle_id = ?, semester_number = ?, subject_type = ?,
-     credits = ?, status = ?, final_score = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+     credits = ?, status = ?, status_manual_override = 1, final_score = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
     subjectId,
     cycleId,
     semester,
