@@ -163,6 +163,14 @@ export function ReportsPage() {
     openDocument(`/reports/report-card.pdf?${query}`);
   }
 
+  function studyCertificate() {
+    if (!studentId) {
+      toast.error("Selecciona un alumno.");
+      return;
+    }
+    openDocument(`/reports/study-certificate.pdf?studentId=${studentId}`);
+  }
+
   async function assignSemesterSubjects() {
     if (!groupId) return toast.error("Selecciona un grupo.");
     if (!planId) return toast.error("Selecciona el plan academico.");
@@ -275,7 +283,7 @@ export function ReportsPage() {
           <Field label="Alumno"><Select options={options.students ?? []} value={studentId} onChange={(event) => setStudentId(event.target.value)} placeholder="Seleccionar alumno" /></Field>
           <Field label="Grupo"><Select options={options.groups ?? []} value={groupId} onChange={(event) => setGroupId(event.target.value)} placeholder="Seleccionar grupo" /></Field>
           <Field label="Periodo"><Select options={options.periods ?? []} value={periodId} onChange={(event) => setPeriodId(event.target.value)} placeholder="Todos los periodos" /></Field>
-          <div className="builder-buttons"><Button variant="secondary" icon={<Printer size={17} />} onClick={() => reportCard("student")}>Boleta individual</Button><Button icon={<Sheet size={17} />} onClick={() => reportCard("group")}>Boletas por grupo</Button></div>
+          <div className="builder-buttons"><Button variant="secondary" icon={<Printer size={17} />} onClick={() => reportCard("student")}>Boleta individual</Button><Button variant="secondary" icon={<FileText size={17} />} onClick={studyCertificate}>Constancia de estudios</Button><Button icon={<Sheet size={17} />} onClick={() => reportCard("group")}>Boletas por grupo</Button></div>
         </div>
       </section>
 

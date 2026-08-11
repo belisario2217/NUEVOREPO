@@ -457,6 +457,7 @@ export function StudentsPage() {
                           {can("students.manage") && <button onClick={() => toggleFinancialClearance(student)}><BadgeCheck size={16} /> {student.financial_clearance_override ? "Usar cálculo automático" : "Marcar cuenta regularizada"}</button>}
                           {can("students.manage") && <button onClick={() => toggle(student)}><Power size={16} /> {student.is_active ? "Dar de baja" : "Reactivar"}</button>}
                           <button onClick={() => openDocument(`/reports/report-card.pdf?studentId=${student.id}`)}><Printer size={16} /> Generar boleta</button>
+                          <button onClick={() => openDocument(`/reports/study-certificate.pdf?studentId=${student.id}`)}><FileText size={16} /> Generar constancia</button>
                           {can("students.manage") && <button className="danger-menu-item" onClick={() => { setDeleting(student); setMenuFor(null); }}><Trash2 size={16} /> Eliminar definitivamente</button>}
                         </div>
                       )}

@@ -1010,6 +1010,15 @@ describe("Aula Nova API", () => {
     expect(report.status).toBe(200);
     expect(report.headers["content-type"]).toContain("application/pdf");
     expect(report.body.length).toBeGreaterThan(1000);
+
+    const certificate = await request(app)
+      .get(`/api/reports/study-certificate.pdf?studentId=${students.body.records[0].id}`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(certificate.status).toBe(200);
+    expect(certificate.headers["content-type"]).toContain("application/pdf");
+    expect(certificate.headers["content-disposition"]).toContain("CE-");
+    expect(certificate.headers["content-disposition"]).toContain("-CONSTANCIA.pdf");
+    expect(certificate.body.length).toBeGreaterThan(1000);
   });
 
   it("exports student, grade and operational reports", async () => {

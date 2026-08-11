@@ -13,6 +13,7 @@ type Plan = {
   matriculation_code: string;
   name: string;
   version: string;
+  rvoe: string | null;
   program_name: string;
   level_name: string;
   subject_count: number;
@@ -63,7 +64,7 @@ export function PlansPage() {
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [deleting, setDeleting] = useState<Plan | null>(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ programId: "", code: "", matriculationCode: "", name: "", version: "2026", description: "", tuitionAmount: "", assignExisting: true });
+  const [form, setForm] = useState({ programId: "", code: "", matriculationCode: "", name: "", version: "2026", rvoe: "", description: "", tuitionAmount: "", assignExisting: true });
   const [drafts, setDrafts] = useState<SubjectDraft[]>([emptySubject()]);
 
   async function loadPlans(preferredId?: number) {
@@ -98,7 +99,7 @@ export function PlansPage() {
 
   function openCreate() {
     setEditingPlan(null);
-    setForm({ programId: "", code: "", matriculationCode: "", name: "", version: "2026", description: "", tuitionAmount: "", assignExisting: true });
+    setForm({ programId: "", code: "", matriculationCode: "", name: "", version: "2026", rvoe: "", description: "", tuitionAmount: "", assignExisting: true });
     setDrafts([emptySubject()]);
     setOpen(true);
   }
@@ -113,6 +114,7 @@ export function PlansPage() {
       matriculationCode: detail.plan.matriculation_code,
       name: detail.plan.name,
       version: detail.plan.version,
+      rvoe: detail.plan.rvoe ?? "",
       description: detail.plan.description ?? "",
       tuitionAmount: String(detail.plan.tuition_amount ?? 0),
       assignExisting: false
@@ -136,7 +138,7 @@ export function PlansPage() {
       toast.success(editingPlan ? "Plan académico actualizado." : "Plan académico creado y créditos calculados.");
       setOpen(false);
       setEditingPlan(null);
-      setForm({ programId: "", code: "", matriculationCode: "", name: "", version: "2026", description: "", tuitionAmount: "", assignExisting: true });
+      setForm({ programId: "", code: "", matriculationCode: "", name: "", version: "2026", rvoe: "", description: "", tuitionAmount: "", assignExisting: true });
       setDrafts([emptySubject()]);
       await loadPlans(saved.id);
     } catch (error) {
@@ -193,7 +195,7 @@ export function PlansPage() {
       <section className="plan-workspace">
         {selected ? <>
           <header className="plan-header">
-            <div><span>{selected.program_name}</span><h2>{selected.name}</h2><p>{selected.code} · Matrícula {selected.matriculation_code} · Versión {selected.version}</p></div>
+            <div><span>{selected.program_name}</span><h2>{selected.name}</h2><p>{selected.code} · Matrícula {selected.matriculation_code} · Versión {selected.version}{selected.rvoe ? ` · RVOE ${selected.rvoe}` : ""}</p></div>
             {can("catalogs.manage") && <div className="plan-header-actions"><Button variant="secondary" icon={<Pencil size={17} />} onClick={openEdit}>Editar</Button><Button variant="secondary" icon={<Power size={17} />} onClick={togglePlan}>{selected.is_active ? "Desactivar" : "Activar"}</Button><Button variant="danger" icon={<Trash2 size={17} />} onClick={() => setDeleting(selected)}>Eliminar</Button></div>}
           </header>
           <div className="plan-summary">
@@ -216,6 +218,7 @@ export function PlansPage() {
             <Field label="Clave del plan" required><input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} placeholder="LIC-ADM-2026" required /></Field>
             <Field label="Código para matrícula" required hint="Código corto del programa, por ejemplo LE."><input maxLength={10} value={form.matriculationCode} onChange={(event) => setForm({ ...form, matriculationCode: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} placeholder="LE" required /></Field>
             <Field label="Versión" required><input value={form.version} onChange={(event) => setForm({ ...form, version: event.target.value })} required /></Field>
+            <Field label="RVOE" hint="Se mostrará en constancias oficiales."><input value={form.rvoe} onChange={(event) => setForm({ ...form, rvoe: event.target.value.toUpperCase() })} placeholder="20231665" /></Field>
           </div>
           <div className="form-grid two">
             <Field label="Nombre" required><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Plan de estudios 2026" required /></Field>

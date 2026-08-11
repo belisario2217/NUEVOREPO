@@ -11,6 +11,7 @@ calificaciones, boletas, reportes, usuarios y analíticas.
 - JWT, bcrypt y permisos configurables por rol
 - XLSX/CSV para importación y exportación
 - PDFKit para boletas y reportes imprimibles
+- Constancias de estudios en PDF con datos del alumno, RVOE, promedio y materias cursadas.
 - Vitest + Supertest
 
 La arquitectura y el modelo de dominio están descritos en

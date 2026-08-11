@@ -8,6 +8,7 @@ import { createPdf, pdfTable, sendWorkbook } from "../services/files.js";
 import { sendAttendancePdf, sendAttendanceWorkbook } from "../services/attendance-list.js";
 import { syncGroupSubjects } from "../services/group-subjects.js";
 import { syncAcademicSubjectStatuses } from "../services/academic-calendar.js";
+import { sendStudyCertificate } from "../services/study-certificate.js";
 import { ApiError, asId, asNumber, cleanText, optionalText } from "../utils.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -369,6 +370,11 @@ reportsRouter.get("/report-card.pdf", requirePermission("reports.generate"), (re
     drawReportCard(doc, id, periodId);
   });
   doc.end();
+});
+
+reportsRouter.get("/study-certificate.pdf", requirePermission("reports.generate"), (req, res) => {
+  const studentId = asId(req.query.studentId, "Alumno");
+  sendStudyCertificate(res, studentId);
 });
 
 function curricularWhere(req: any) {
