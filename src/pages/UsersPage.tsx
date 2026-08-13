@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Eye, KeyRound, Pencil, Plus, ShieldCheck, UserCog, UsersRound } from "lucide-react";
+import { Eye, KeyRound, Pencil, Plus, ShieldCheck, Trash2, TriangleAlert, UserCog, UsersRound } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../components/Toast";
@@ -17,7 +17,7 @@ type StudentCredentials = {
 };
 
 export function UsersPage() {
-  const { can } = useAuth();
+  const { can, user: sessionUser } = useAuth();
   const toast = useToast();
   const [tab, setTab] = useState<"users" | "roles">("users");
   const [users, setUsers] = useState<User[]>([]);
@@ -36,6 +36,7 @@ export function UsersPage() {
   const [credentialBusy, setCredentialBusy] = useState(false);
   const [resetting, setResetting] = useState<User | null>(null);
   const [resetResult, setResetResult] = useState<{ email: string; temporaryPassword: string } | null>(null);
+  const [deleting, setDeleting] = useState<User | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -143,6 +144,21 @@ export function UsersPage() {
     }
   }
 
+  async function deleteUserAccess() {
+    if (!deleting) return;
+    setBusy(true);
+    try {
+      await api(`/users/${deleting.id}`, { method: "DELETE" });
+      toast.success("Cuenta de acceso eliminada.");
+      setDeleting(null);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No fue posible eliminar la cuenta.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const groupedPermissions = permissions.reduce<Record<string, any[]>>((groups, permission) => {
     (groups[permission.module] ??= []).push(permission);
     return groups;
@@ -159,7 +175,7 @@ export function UsersPage() {
         <section className="table-section">
           <header className="section-heading"><div><span>Acceso</span><h2>Cuentas del sistema</h2></div><Button icon={<Plus size={18} />} onClick={createUser}>Nuevo usuario</Button></header>
           <div className="table-wrap"><table><thead><tr><th>Usuario</th><th>Rol</th><th>Alumno vinculado</th><th>Último acceso</th><th>Estado</th><th aria-label="Acciones" /></tr></thead><tbody>
-            {users.map((user) => <tr key={user.id}><td><div className="person-cell"><div className="mini-avatar">{user.full_name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div><div><strong>{user.full_name}</strong><span>{user.email}</span></div></div></td><td><span className="role-chip">{user.role_name}</span></td><td>{user.student_name ? <><strong className="table-main">{user.student_name}</strong><span className="table-sub">{user.student_number}{user.password_must_change ? " · Contraseña temporal" : " · Contraseña personalizada"}</span></> : <span className="muted-cell">No aplica</span>}</td><td>{user.last_login_at ? new Date(user.last_login_at).toLocaleString("es-MX") : "Sin acceso"}</td><td><StatusBadge active={Boolean(user.is_active)} /></td><td><div className="split-actions">{user.student_id && <button title="Ver credenciales del alumno" onClick={() => openStudentCredentials(user)}><Eye size={17} /></button>}{user.student_id && <button title="Restablecer contraseña del alumno" onClick={() => { setResetting(user); setResetResult(null); }}><KeyRound size={17} /></button>}<button title="Editar usuario" onClick={() => editUser(user)}><Pencil size={17} /></button></div></td></tr>)}
+            {users.map((user) => <tr key={user.id}><td><div className="person-cell"><div className="mini-avatar">{user.full_name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div><div><strong>{user.full_name}</strong><span>{user.email}</span></div></div></td><td><span className="role-chip">{user.role_name}</span></td><td>{user.student_name ? <><strong className="table-main">{user.student_name}</strong><span className="table-sub">{user.student_number}{user.password_must_change ? " · Contraseña temporal" : " · Contraseña personalizada"}</span></> : <span className="muted-cell">No aplica</span>}</td><td>{user.last_login_at ? new Date(user.last_login_at).toLocaleString("es-MX") : "Sin acceso"}</td><td><StatusBadge active={Boolean(user.is_active)} /></td><td><div className="split-actions">{user.student_id && <button title="Ver credenciales del alumno" onClick={() => openStudentCredentials(user)}><Eye size={17} /></button>}{user.student_id && <button title="Restablecer contraseña del alumno" onClick={() => { setResetting(user); setResetResult(null); }}><KeyRound size={17} /></button>}<button title="Editar usuario" onClick={() => editUser(user)}><Pencil size={17} /></button>{user.id !== sessionUser?.id && <button title="Eliminar cuenta de acceso" onClick={() => setDeleting(user)}><Trash2 size={17} /></button>}</div></td></tr>)}
           </tbody></table></div>
         </section>
       ) : (
@@ -223,6 +239,11 @@ export function UsersPage() {
             <div className="modal-actions"><Button variant="ghost" onClick={() => setResetting(null)}>Cancelar</Button><Button icon={<KeyRound size={17} />} busy={busy} onClick={resetStudentAccess}>Restablecer</Button></div>
           </>
         )}
+      </Modal>
+
+      <Modal open={Boolean(deleting)} onClose={() => setDeleting(null)} title="Eliminar cuenta de acceso" size="small">
+        <div className="danger-confirmation"><TriangleAlert size={30} /><div><strong>Se eliminará el acceso de {deleting?.full_name}</strong><p>La persona ya no podrá iniciar sesión. El expediente del alumno, sus pagos, materias, calificaciones y registros institucionales no serán eliminados.</p></div></div>
+        <div className="modal-actions"><Button type="button" variant="ghost" onClick={() => setDeleting(null)}>Cancelar</Button><Button type="button" variant="danger" icon={<Trash2 size={17} />} busy={busy} onClick={deleteUserAccess}>Eliminar acceso</Button></div>
       </Modal>
 
       <Modal open={permissionsOpen} onClose={() => setPermissionsOpen(false)} title={`Permisos · ${currentRole?.name ?? ""}`} size="large">

@@ -1,7 +1,4 @@
 import { Router } from "express";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { logActivity, requirePermission, type AuthenticatedRequest } from "../auth.js";
 import { all, get, run, transaction } from "../db.js";
 import { createPdf, pdfTable, sendWorkbook } from "../services/files.js";
@@ -9,17 +6,10 @@ import { sendAttendancePdf, sendAttendanceWorkbook } from "../services/attendanc
 import { syncGroupSubjects } from "../services/group-subjects.js";
 import { syncAcademicSubjectStatuses } from "../services/academic-calendar.js";
 import { sendStudyCertificate } from "../services/study-certificate.js";
+import { institutionLogoFile } from "../services/institution-logo.js";
 import { ApiError, asId, asNumber, cleanText, optionalText } from "../utils.js";
 
-const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const reportsRouter = Router();
-
-function logoFile(logoPath: string | null) {
-  if (!logoPath) return null;
-  const relative = logoPath.startsWith("/assets/") ? path.join("public", logoPath) : logoPath;
-  const resolved = path.resolve(projectRoot, `.${relative.startsWith("/") ? relative : `/${relative}`}`);
-  return fs.existsSync(resolved) ? resolved : null;
-}
 
 function groupByCycle(records: any[]) {
   return records.reduce<Record<string, any[]>>((grouped, record) => {
@@ -305,7 +295,7 @@ function drawReportCard(doc: PDFKit.PDFDocument, studentId: number, periodId?: n
   const primary = settings.primary_color || "#102a43";
   const secondary = settings.secondary_color || "#f97360";
 
-  const logo = logoFile(settings.logo_path);
+  const logo = institutionLogoFile(settings.logo_path);
   if (logo) doc.image(logo, 42, 36, { fit: [70, 70] });
   doc.fillColor(primary).font("Helvetica-Bold").fontSize(19).text(settings.institution_name, 125, 44);
   doc.fillColor("#627d98").font("Helvetica").fontSize(9).text(settings.address || "", 125, 70);

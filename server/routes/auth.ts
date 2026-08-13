@@ -20,7 +20,7 @@ authRouter.post(
     const email = cleanText(req.body.email, 180).toLowerCase();
     const password = String(req.body.password ?? "");
     const account = get<{ id: number; password_hash: string; is_active: number }>(
-      "SELECT id, password_hash, is_active FROM users WHERE email = ?",
+      "SELECT id, password_hash, is_active FROM users WHERE email = ? AND deleted_at IS NULL",
       email
     );
     if (!account || !account.is_active || !(await bcrypt.compare(password, account.password_hash))) {

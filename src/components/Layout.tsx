@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { api } from "../lib/api";
+import { InstitutionLogo } from "./InstitutionLogo";
 
 type Institution = { institution_name: string; logo_path: string | null; active_cycle_name: string | null };
 
@@ -64,7 +65,7 @@ export function Layout({ children }: { children: ReactNode }) {
       {mobileOpen && <button className="mobile-overlay" onClick={() => setMobileOpen(false)} aria-label="Cerrar menú" />}
       <aside className={`sidebar ${mobileOpen ? "mobile-open" : ""}`}>
         <div className="brand">
-          <img src={institution?.logo_path || "/assets/campus-frontera.jpg"} alt="" />
+          <InstitutionLogo logoPath={institution?.logo_path} />
           <div className="brand-copy">
             <strong>{institution?.institution_name || "Universidad IFOP"}</strong>
             <span>Gestión académica</span>

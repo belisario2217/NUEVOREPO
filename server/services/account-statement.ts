@@ -1,12 +1,10 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Response } from "express";
 import ExcelJS from "exceljs";
 import { createPdf } from "./files.js";
+import { institutionLogoFile } from "./institution-logo.js";
 
-const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const statementPlace = "Frontera, Centla, Tab.";
 const timeZone = "America/Mexico_City";
 const rowsPerPdfPage = 12;
@@ -136,20 +134,6 @@ function verificationCode(data: StatementAccountData, issued: IssuedParts) {
   return `EC-${studentKey}-${issued.compact}-${digest}`;
 }
 
-function logoFile(logoPath: string | null) {
-  const candidates = [logoPath, "/assets/campus-frontera.jpg"].filter(Boolean) as string[];
-  for (const candidate of candidates) {
-    const extension = path.extname(candidate).toLowerCase();
-    if (![".png", ".jpg", ".jpeg"].includes(extension)) continue;
-    const normalized = candidate.replace(/^\/+/, "");
-    const resolved = candidate.startsWith("/assets/")
-      ? path.resolve(projectRoot, "public", normalized)
-      : path.resolve(projectRoot, normalized);
-    if (fs.existsSync(resolved)) return resolved;
-  }
-  return null;
-}
-
 type PdfCellOptions = {
   x: number;
   y: number;
@@ -192,7 +176,7 @@ function drawPdfHeader(
   pageNumber: number,
   pageCount: number
 ) {
-  const logo = logoFile(settings.logo_path);
+  const logo = institutionLogoFile(settings.logo_path);
   if (logo) doc.image(logo, 44, 30, { fit: [62, 62], align: "center", valign: "center" });
   doc
     .fillColor(primary)
@@ -415,7 +399,7 @@ function mergedValue(
 }
 
 function workbookLogo(workbook: ExcelJS.Workbook, settings: StatementInstitutionSettings) {
-  const logo = logoFile(settings.logo_path);
+  const logo = institutionLogoFile(settings.logo_path);
   if (!logo) return null;
   const extension = path.extname(logo).toLowerCase() === ".png" ? "png" : "jpeg";
   return workbook.addImage({ filename: logo, extension });

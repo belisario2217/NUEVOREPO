@@ -337,6 +337,26 @@ function ensureEnhancementData() {
        AND p.code = 'attendance.manage'`
     );
 
+    const certificateCycle = get<{ id: number }>("SELECT id FROM school_cycles WHERE name = '2026B - 2027A' ORDER BY id DESC LIMIT 1");
+    if (certificateCycle) {
+      [
+        ["class_start", "Inicio de actividades del periodo", "2026-08-10", "2026-08-10", "Fecha inicial usada en constancias de estudios.", 1],
+        ["vacation", "Periodo vacacional de invierno", "2026-12-18", "2027-01-04", "Periodo vacacional indicado en las constancias institucionales.", 0],
+        ["cycle_end", "Fin de actividades del periodo", "2027-01-29", "2027-01-29", "Fecha final usada en constancias de estudios.", 0]
+      ].forEach(([eventType, title, startDate, endDate, description, autoStartSubjects]) => {
+        run(
+          `INSERT INTO academic_calendar_events(school_cycle_id, event_type, title, start_date, end_date, description, auto_start_subjects)
+           SELECT ?, ?, ?, ?, ?, ?, ?
+           WHERE NOT EXISTS (
+             SELECT 1 FROM academic_calendar_events
+             WHERE school_cycle_id = ? AND event_type = ? AND is_active = 1
+           )`,
+          certificateCycle.id, String(eventType), String(title), String(startDate), String(endDate), String(description), Number(autoStartSubjects),
+          certificateCycle.id, String(eventType)
+        );
+      });
+    }
+
     const student = get<{ id: number; full_name: string }>(
       `SELECT id, TRIM(first_name || ' ' || last_name || ' ' || COALESCE(second_last_name, '')) AS full_name
        FROM students st

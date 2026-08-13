@@ -46,11 +46,15 @@ export function provisionStudentAccount(input: StudentAccountInput): StudentAcco
     id: number;
     password_must_change: number;
     temporary_password_name: string | null;
+    deleted_at: string | null;
   }>(
-    `SELECT id, password_must_change, temporary_password_name
+    `SELECT id, password_must_change, temporary_password_name, deleted_at
      FROM users WHERE student_id = ? ORDER BY id LIMIT 1`,
     input.studentId
   );
+  if (existing?.deleted_at) {
+    return { userId: existing.id, email, temporaryPassword: null, created: false };
+  }
   const emailOwner = get<{ id: number; student_id: number | null }>("SELECT id, student_id FROM users WHERE email = ?", email);
   if (emailOwner && emailOwner.student_id !== input.studentId) {
     throw new ApiError(409, `El correo institucional ${email} ya pertenece a otra cuenta.`);

@@ -15,6 +15,7 @@ process.env.JWT_SECRET = "test-secret";
 
 const { app } = await import("./app.js");
 const { db } = await import("./db.js");
+const { certificateProgramName, repairAcademicAccents } = await import("./services/study-certificate.js");
 
 let token = "";
 
@@ -42,6 +43,15 @@ afterAll(() => {
 
 describe("Aula Nova API", () => {
   it("authenticates and exposes permissions", async () => {
+    const branding = await request(app).get("/api/branding");
+    expect(branding.status).toBe(200);
+    expect(branding.body.institution_name).toBeTruthy();
+    expect(branding.body.logo_path).toBe("/assets/campus-frontera.jpg");
+    expect(certificateProgramName("LICENCIATURA EN ENFERMERÍA IFOP")).toBe("LICENCIATURA EN ENFERMERÍA");
+    expect(certificateProgramName("LICENCIATURA EN ENFERMERÍA UNITEN")).toBe("LICENCIATURA EN ENFERMERÍA");
+    expect(certificateProgramName("LICENCIATURA EN ENFERMER?A IFOP")).toBe("LICENCIATURA EN ENFERMERÍA");
+    expect(repairAcademicAccents("Patolog?a M?dico Quir?rgica e Ingl?s T?cnico")).toBe("Patología Médico Quirúrgica e Inglés Técnico");
+
     const response = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${token}`);
     expect(response.status).toBe(200);
     expect(response.body.user.roleName).toBe("Administrador");
@@ -964,6 +974,37 @@ describe("Aula Nova API", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({ fullName: "Usuario de Prueba", email: "usuario.prueba@example.com", password: "Prueba123!", roleId: role.body.id });
     expect(user.status).toBe(201);
+
+    const cannotDeleteSelf = await request(app)
+      .delete("/api/users/1")
+      .set("Authorization", `Bearer ${token}`);
+    expect(cannotDeleteSelf.status).toBe(400);
+
+    const deleted = await request(app)
+      .delete(`/api/users/${user.body.id}`)
+      .set("Authorization", `Bearer ${token}`);
+    expect(deleted.status).toBe(200);
+    const userRows = await request(app).get("/api/users").set("Authorization", `Bearer ${token}`);
+    expect(userRows.body.some((item: any) => item.id === user.body.id)).toBe(false);
+    await request(app)
+      .post("/api/auth/login")
+      .send({ email: "usuario.prueba@example.com", password: "Prueba123!" })
+      .expect(401);
+
+    const studentAccess = userRows.body.find((item: any) => item.student_number === "AN26001");
+    expect(studentAccess).toBeTruthy();
+    await request(app)
+      .delete(`/api/users/${studentAccess.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    const { ensureAllStudentAccounts } = await import("./services/student-account.js");
+    ensureAllStudentAccounts();
+    const usersAfterProvision = await request(app).get("/api/users").set("Authorization", `Bearer ${token}`);
+    expect(usersAfterProvision.body.some((item: any) => item.id === studentAccess.id)).toBe(false);
+    await request(app)
+      .post("/api/auth/login")
+      .send({ email: "an26001@alumnoifop.edu", password: "Alumno123!" })
+      .expect(401);
 
     const current = await request(app).get("/api/settings").set("Authorization", `Bearer ${token}`);
     const settings = current.body.settings;

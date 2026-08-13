@@ -1,13 +1,11 @@
-import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Response } from "express";
 import ExcelJS from "exceljs";
 import { all, get } from "../db.js";
 import { ApiError } from "../utils.js";
 import { createPdf } from "./files.js";
+import { institutionLogoFile } from "./institution-logo.js";
 
-const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const studentsPerPage = 19;
 const attendanceColumns = 19;
 const campusName = "CAMPUS FRONTERA";
@@ -77,13 +75,6 @@ function dayLabels(mode: AttendanceMode) {
   if (mode === "complementario") return Array.from({ length: attendanceColumns }, () => "D");
   const weekdays = ["L", "M", "M", "J", "V"];
   return Array.from({ length: attendanceColumns }, (_, index) => weekdays[index % weekdays.length]);
-}
-
-function logoFile(logoPath: string | null) {
-  if (!logoPath) return null;
-  const relative = logoPath.startsWith("/assets/") ? path.join("public", logoPath) : logoPath;
-  const resolved = path.resolve(projectRoot, `.${relative.startsWith("/") ? relative : `/${relative}`}`);
-  return fs.existsSync(resolved) ? resolved : null;
 }
 
 function attendanceSettings() {
@@ -332,7 +323,7 @@ export async function sendAttendanceWorkbook(
   workbook.title = "Listas de asistencia";
   workbook.subject = `Listas de asistencia - ${mode}`;
   workbook.created = new Date();
-  const logo = logoFile(settings.logo_path);
+  const logo = institutionLogoFile(settings.logo_path);
   const imageId = logo ? workbook.addImage({ filename: logo, extension: path.extname(logo).toLowerCase() === ".png" ? "png" : "jpeg" }) : null;
   const usedNames = new Set<string>();
   pages.forEach((page) => buildAttendanceSheet(workbook, page, settings, mode, month, imageId, usedNames));
@@ -373,7 +364,7 @@ function drawAttendancePdfPage(
 ) {
   const left = 20;
   const width = 752;
-  const logo = logoFile(settings.logo_path);
+  const logo = institutionLogoFile(settings.logo_path);
   if (logo) doc.image(logo, left + 12, 10, { fit: [62, 68], align: "center", valign: "center" });
   doc.fillColor("#000000").font("Helvetica-Bold").fontSize(16).text(
     institutionHeading(settings),

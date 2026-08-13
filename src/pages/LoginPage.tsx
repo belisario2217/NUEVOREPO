@@ -1,9 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../components/Toast";
 import { Button, Field } from "../components/Ui";
+import { InstitutionLogo } from "../components/InstitutionLogo";
+import { api } from "../lib/api";
+
+type Branding = { institution_name: string; logo_path: string | null };
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -13,6 +17,11 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [branding, setBranding] = useState<Branding>({ institution_name: "Universidad IFOP", logo_path: null });
+
+  useEffect(() => {
+    api<Branding>("/branding").then(setBranding).catch(() => undefined);
+  }, []);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -30,10 +39,10 @@ export function LoginPage() {
   return (
     <main className="login-page">
       <section className="login-identity">
-        <img src="/assets/campus-frontera.jpg" alt="" />
+        <InstitutionLogo logoPath={branding.logo_path} />
         <div>
           <span className="identity-kicker">Sistema de gestión académica</span>
-          <h1>Universidad IFOP</h1>
+          <h1>{branding.institution_name}</h1>
           <p>Frontera, Centla.</p>
         </div>
         <div className="identity-lines" aria-hidden="true"><i /><i /><i /></div>
@@ -62,7 +71,7 @@ export function LoginPage() {
           </Field>
           <Button type="submit" busy={busy} icon={<ArrowRight size={18} />}>Iniciar sesion</Button>
         </form>
-        <p className="login-footer">(c) 2026 Universidad IFOP</p>
+        <p className="login-footer">© 2026 {branding.institution_name}</p>
       </section>
     </main>
   );

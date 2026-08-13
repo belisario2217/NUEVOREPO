@@ -4,7 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import "./db.js";
+import { get } from "./db.js";
 import { authenticate } from "./auth.js";
 import { ApiError } from "./utils.js";
 import { authRouter } from "./routes/auth.js";
@@ -22,6 +22,7 @@ import { messagesRouter } from "./routes/messages.js";
 import { groupManagementRouter } from "./routes/group-management.js";
 import { attendanceRouter } from "./routes/attendance.js";
 import { ensureAllStudentAccounts } from "./services/student-account.js";
+import { defaultInstitutionLogoUrl, institutionLogoPublicUrl } from "./services/institution-logo.js";
 
 ensureAllStudentAccounts();
 
@@ -36,9 +37,19 @@ app.set("trust proxy", 1);
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cors({ origin: process.env.APP_ORIGIN ?? "http://localhost:4173" }));
 app.use(express.json({ limit: "1mb" }));
+app.use("/assets", express.static(path.join(root, "public", "assets")));
 app.use("/uploads", express.static(uploadsDir));
 
 app.get("/api/health", (_req, res) => res.json({ status: "ok", service: "Universidad IFOP API" }));
+app.get("/api/branding", (_req, res) => {
+  const settings = get<{ institution_name: string; logo_path: string | null }>(
+    "SELECT institution_name, logo_path FROM institution_settings WHERE id = 1"
+  );
+  res.json({
+    institution_name: settings?.institution_name || "Universidad IFOP",
+    logo_path: institutionLogoPublicUrl(settings?.logo_path ?? defaultInstitutionLogoUrl)
+  });
+});
 app.use("/api/auth", authRouter);
 app.use("/api/catalogs", authenticate, catalogsRouter);
 app.use("/api/students", authenticate, studentsRouter);

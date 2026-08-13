@@ -5,6 +5,13 @@ function apiUrl(path: string) {
   return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+export function publicFileUrl(filePath: string) {
+  if (/^(?:https?:)?\/\//i.test(filePath) || filePath.startsWith("data:") || filePath.startsWith("blob:")) return filePath;
+  const normalized = filePath.startsWith("/") ? filePath : `/${filePath}`;
+  if (!API_BASE_URL.startsWith("http://") && !API_BASE_URL.startsWith("https://")) return normalized;
+  return new URL(normalized, API_BASE_URL).toString();
+}
+
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }

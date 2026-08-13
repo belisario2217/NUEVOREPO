@@ -36,7 +36,7 @@ export function loadUser(userId: number): AuthUser | undefined {
     `SELECT u.id, u.full_name, u.email, u.role_id, r.name AS role_name, u.student_id,
      u.password_must_change
      FROM users u JOIN roles r ON r.id = u.role_id
-     WHERE u.id = ? AND u.is_active = 1 AND r.is_active = 1`,
+     WHERE u.id = ? AND u.is_active = 1 AND u.deleted_at IS NULL AND r.is_active = 1`,
     userId
   );
   if (!user) return undefined;

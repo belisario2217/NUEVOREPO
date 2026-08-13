@@ -13,7 +13,8 @@ usersRouter.get("/", requirePermission("users.manage"), (_req, res) => {
      st.student_number, TRIM(st.first_name || ' ' || st.last_name || ' ' || COALESCE(st.second_last_name, '')) AS student_name,
      u.is_active, u.password_must_change, u.last_login_at, u.created_at
      FROM users u JOIN roles r ON r.id = u.role_id
-     LEFT JOIN students st ON st.id = u.student_id ORDER BY u.full_name`
+     LEFT JOIN students st ON st.id = u.student_id
+     WHERE u.deleted_at IS NULL ORDER BY u.full_name`
   ));
 });
 
@@ -54,7 +55,7 @@ usersRouter.post("/", requirePermission("users.manage"), async (req: Authenticat
 
 usersRouter.patch("/:id", requirePermission("users.manage"), async (req: AuthenticatedRequest, res) => {
   const id = asId(req.params.id, "Usuario");
-  const current = get<{ id: number; role_id: number; student_id: number | null; is_active: number }>("SELECT id, role_id, student_id, is_active FROM users WHERE id = ?", id);
+  const current = get<{ id: number; role_id: number; student_id: number | null; is_active: number }>("SELECT id, role_id, student_id, is_active FROM users WHERE id = ? AND deleted_at IS NULL", id);
   if (!current) throw new ApiError(404, "No se encontró el usuario.");
   if (id === req.user!.id && req.body.isActive === false) throw new ApiError(400, "No puedes desactivar tu propia cuenta.");
   const passwordHash = req.body.password ? await bcrypt.hash(String(req.body.password), 12) : null;
@@ -93,6 +94,51 @@ usersRouter.patch("/:id", requirePermission("users.manage"), async (req: Authent
   );
   logActivity(req, "update", "users", id, { ...req.body, password: req.body.password ? "[updated]" : undefined });
   res.json({ message: "Usuario actualizado." });
+});
+
+usersRouter.delete("/:id", requirePermission("users.manage"), (req: AuthenticatedRequest, res) => {
+  const id = asId(req.params.id, "Usuario");
+  if (id === req.user!.id) throw new ApiError(400, "No puedes eliminar tu propia cuenta de acceso.");
+
+  const account = get<{
+    id: number;
+    full_name: string;
+    email: string;
+    role_name: string;
+    student_id: number | null;
+    is_active: number;
+  }>(
+    `SELECT u.id, u.full_name, u.email, r.name AS role_name, u.student_id, u.is_active
+     FROM users u JOIN roles r ON r.id = u.role_id
+     WHERE u.id = ? AND u.deleted_at IS NULL`,
+    id
+  );
+  if (!account) throw new ApiError(404, "No se encontró el usuario.");
+
+  if (account.role_name === "Administrador" && account.is_active) {
+    const activeAdministrators = get<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM users u JOIN roles r ON r.id = u.role_id
+       WHERE r.name = 'Administrador' AND u.is_active = 1 AND u.deleted_at IS NULL`
+    )?.total ?? 0;
+    if (activeAdministrators <= 1) {
+      throw new ApiError(400, "No se puede eliminar la única cuenta de administrador activa.");
+    }
+  }
+
+  const removedEmail = `eliminado-${id}-${Date.now()}@acceso-inhabilitado.local`;
+  run(
+    `UPDATE users SET email = ?, is_active = 0,
+     deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    removedEmail,
+    id
+  );
+  logActivity(req, "delete-access", "users", id, {
+    fullName: account.full_name,
+    email: account.email,
+    role: account.role_name,
+    studentId: account.student_id
+  });
+  res.json({ message: "La cuenta de acceso fue eliminada." });
 });
 
 usersRouter.get("/:id/student-credentials", requirePermission("users.manage"), (req: AuthenticatedRequest, res) => {

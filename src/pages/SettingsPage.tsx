@@ -4,6 +4,7 @@ import { api, download } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../components/Toast";
 import { Button, Field, Select } from "../components/Ui";
+import { InstitutionLogo } from "../components/InstitutionLogo";
 
 type CalendarEvent = {
   id: number;
@@ -209,12 +210,12 @@ export function SettingsPage() {
           </section>
           <aside className="logo-panel">
             <span>Logo institucional</span>
-            <div className="logo-preview"><img src={settings.logo_path || "/assets/campus-frontera.jpg"} alt="Logo institucional" /></div>
+            <div className="logo-preview"><InstitutionLogo logoPath={settings.logo_path} /></div>
             <Button type="button" variant="secondary" icon={<ImagePlus size={17} />} onClick={() => logoRef.current?.click()}>Cambiar logo</Button>
             <input ref={logoRef} hidden type="file" accept=".png,.jpg,.jpeg,.webp" onChange={(event) => event.target.files?.[0] && uploadLogo(event.target.files[0])} />
             <small>PNG, JPG o WebP. Máximo 2 MB.</small>
             <div className="document-preview">
-              <div style={{ backgroundColor: settings.primary_color }} /><img src={settings.logo_path || "/assets/campus-frontera.jpg"} alt="" /><strong>{settings.institution_name}</strong><i style={{ backgroundColor: settings.secondary_color }} /><p>Vista previa del encabezado</p>
+              <div style={{ backgroundColor: settings.primary_color }} /><InstitutionLogo logoPath={settings.logo_path} /><strong>{settings.institution_name}</strong><i style={{ backgroundColor: settings.secondary_color }} /><p>Vista previa del encabezado</p>
             </div>
             {can("settings.manage") && (
               <div className="database-restore">
